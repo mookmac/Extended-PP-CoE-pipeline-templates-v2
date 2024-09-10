@@ -1,0 +1,30 @@
+parameters:
+- name: dataimportzipfolderpath
+  type: string
+  default: ''
+
+- name: dataimportzipfilename
+  type: string
+  default: ''
+
+- name: crmConnectionString
+  type: string
+
+- name: packagename
+  type: string
+
+- name: serviceConnection
+  displayName: 'Environment service connection name'
+  type: string
+
+steps:
+# Installs default Power Platform Build Tools
+- task: microsoft-IsvExpTools.PowerPlatform-BuildTools.tool-installer.PowerPlatformToolInstaller@2
+  displayName: 'Power Platform Tool Installer'
+
+- task: microsoft-IsvExpTools.PowerPlatform-BuildTools.import-data.PowerPlatformImportData@2
+  displayName: 'Power Platform Import Data '
+  inputs:
+    authenticationType: PowerPlatformSPN
+    PowerPlatformSPN: '${{parameters.serviceConnection}}'
+    DataFile: "${{ parameters.dataimportzipfolderpath }}/${{ parameters.dataimportzipfilename }}"

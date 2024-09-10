@@ -1,0 +1,142 @@
+
+trigger: 
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - 'power-platform/src/solutions'
+
+resources:
+  repositories:
+  - repository: PipelineRepo  # repository name (DO NOT CHANGE THIS VALUE) 
+    type: git
+    #ref: BranchContainingTheBuildTemplates # If your pipeline templates are in a branch other than the default branch specify the branch here. Otherwise the default branch will be used by default.
+    name: coe-alm-accelerator-templates  # This is the name of the repo in the current project in Azure Devops that has the pipeline templates. If the repo is in a different project you can specify the project and repo using the format ProjectContainingTheBuildTemplates/RepositoryContainingTheBuildTemplates (https://docs.microsoft.com/en-us/azure/devops/pipelines/yaml-schema?view=azure-devops&tabs=schema%2Cparameter-schema#type)
+  - repository: 'Applications-Source'
+    type: git
+    name: 'MyADOProject/Applications-Source'
+    ref: main
+    trigger:
+      branches:
+        include:
+        - main
+        - releases/m*
+      paths:
+        include:
+        - 'src/power-platform/solutions/*'
+
+# NOTE: If you want to use different values for these variables, you can remove the variable group and attach them directly to this pipeline. The group specified below is a variable group defined in the Library for the Pipelines
+variables:
+- group: pp-common
+
+- name: SolutionSourceFolder
+  value: 'src/power-platform/solutions'
+
+- name: SolutionDescription
+  value: 'Commit: $(Build.SourceVersion) $(Build.SourceVersionMessage)'
+
+- name: ServiceConnection
+  value: 'DemoDevSC'
+
+- name: RepoName
+  value: $(Build.Repository.Name)
+
+stages:
+- stage: initialise
+  displayName: Initialise
+  jobs:
+  - job: determinesolutionname
+    pool: 
+      vmImage: 'windows-latest'
+    steps:
+    - checkout: 'Applications-Source'
+      displayName: 'Checkout Applications-Source'
+      
+    - powershell: |
+        echo "Looking for Solution Name from commit diff file path"
+        echo $(Build.SourceVersion)
+        $a = git log -m -1 --name-only --pretty="format:" $(Build.SourceVersion)
+        echo $a
+        $b = [regex]::Match($a, "$(SolutionSourceFolder)/(?<solutionname>[^/]*)/.*").captures.groups[1].value
+        $c = $b.ToLower()
+        $d = "$(SolutionSourceFolder)/" + $b
+        echo "##vso[task.setvariable variable=SolutionName;isOutput=true]$b"
+        echo "##vso[task.setvariable variable=SolutionNameLowered;isOutput=true]$c"  
+        echo "##vso[task.setvariable variable=PathSolutionName;isOutput=true]$d" 
+      name: RegexToGetSolutionName
+
+- stage: build
+  displayName: Build
+  dependsOn: initialise
+  variables:
+    - name: SolutionName
+      value: $[ stageDependencies.initialise.determinesolutionname.outputs['RegexToGetSolutionName.SolutionName'] ]
+    - name: LoweredSolutionName
+      value: $[ stageDependencies.initialise.determinesolutionname.outputs['RegexToGetSolutionName.SolutionNameLowered'] ]
+    - name: PathSolutionName
+      value: $[ stageDependencies.initialise.determinesolutionname.outputs['RegexToGetSolutionName.PathSolutionName'] ]
+  jobs:
+  - job: buildjob
+    pool: 
+      vmImage: 'windows-latest'
+    steps:
+    - script: git config --system core.longpaths true
+      displayName: Set git to allow longpaths
+      
+    - checkout: self
+      displayName: 'Checkout Source Branch'
+    - checkout: 'Applications-Source'
+      displayName: 'Checkout Applications-Source'
+
+    - script: echo SolutionName = $(SolutionName)
+    - script: echo LoweredSolutionName = $(LoweredSolutionName)
+    - script: echo PathSolutionName = $(PathSolutionName)
+
+    - template: templates\ado-set-version-using-nbgv.yml
+      parameters:
+        sourceToVersionFolder: '$(RepoName)/$(PathSolutionName)'
+
+    - task: qetza.replacetokens.replacetokens-task.replacetokens@4
+      displayName: 'Replace Tokens in SolutionPackage Map files'
+      inputs:
+        rootDirectory: '$(Build.SourcesDirectory)\$(RepoName)\$(SolutionSourceFolder)'
+        targetFiles: '**/*-SolutionPackage-Map.xml'
+        actionOnMissing: 'silently continue'
+        writeBOM: false
+        encoding: 'utf-8'
+        defaultValue: ''
+        escapeType: 'none'
+      enabled: true
+
+    - template: templates/pp-set-execute-build-and-test-variable.yml
+
+    - template: templates/dotnet/visualstudio-dotnetx-build-and-test.yml
+      parameters:
+        buildConfiguration: $(buildConfiguration)
+        buildVersion: '$(Build.BuildNumber)'
+        resharperEnabled: false
+        solutionPath: '$(RepoName)/$(PathSolutionName)\plugins\*.sln'
+        buildQualityCheckEnabled: true
+        runUnitTests: true
+
+    - template: Pipelines\Templates\build-unmanaged-managed-Solution.yml@PipelineRepo #The @PipelineRepo tells the pipeline where to look for the templates based on the name of the repo you specified above
+
+    - task: UniversalPackages@0
+      condition: ne(variables['Build.Reason'], 'PullRequest') # don't publish if is a PR build
+      inputs:
+        command: 'publish'
+        publishDirectory: '$(Build.ArtifactStagingDirectory)' # '$(Build.ArtifactStagingDirectory)\$(SolutionName).zip'
+        feedsToUsePublish: 'internal'
+        vstsFeedPublish: '$(ArtifactFeedId)'
+        vstsFeedPackagePublish: 'pp-solution-$(LoweredSolutionName)'
+        versionOption: 'custom'
+        versionPublish: '$(Build.BuildNumber)'
+        packagePublishDescription: '$(SolutionDescription)'
+        verbosity: 'Trace'
+        publishedPackageVar: 'OutArtifactFeedPackage'
+
+    - template: templates\update-manifests-with-new-package-version.yml      
+      parameters:
+        packageName: managed-solution-$(LoweredSolutionName)
+        newVersion: '$(Build.BuildNumber)'

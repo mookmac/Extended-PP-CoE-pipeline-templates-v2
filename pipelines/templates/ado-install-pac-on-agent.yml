@@ -1,0 +1,17 @@
+parameters:
+- name: taskDisplayName
+  type: string
+  default: 'Install PAC on agent'
+
+jobs:
+- job: 'SetPacPath'
+  displayName: ${{ parameters.taskDisplayName }}
+  steps:
+    - task: NuGetToolInstaller@1
+      displayName: 'NuGet Tool Installer'
+
+    - task: NuGetCommand@2
+      displayName: 'NuGet Install Microsoft.PowerApps.CLI'
+      inputs:
+        command: 'custom'
+        arguments: 'install Microsoft.PowerApps.CLI -OutputDirectory pac'

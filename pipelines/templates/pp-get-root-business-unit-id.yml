@@ -1,0 +1,40 @@
+parameters:
+- name: serviceConnection
+  displayName: 'Environment service connection name'
+  type: string
+
+steps:
+- task: PowerPlatformSetConnectionVariables@2
+  displayName: 'Set Connection Variables'
+  name: connectionVariables
+  inputs:
+    authenticationType: 'PowerPlatformSPN'
+    PowerPlatformSPN: '${{parameters.serviceConnection}}'
+
+- powershell: |
+    $microsoftPowerAppsAdministrationPowerShellModule = '$(CoETools_Microsoft_PowerApps_Administration_PowerShell)'
+    Import-Module $microsoftPowerAppsAdministrationPowerShellModule -Force -RequiredVersion $(PowerAppsAdminModuleVersion) -ArgumentList @{ NonInteractive = $true }
+    Add-PowerAppsAccount -TenantID $(connectionVariables.BuildTools.TenantId) -ApplicationId $(connectionVariables.BuildTools.ApplicationId) -ClientSecret $(connectionVariables.BuildTools.ClientSecret)
+    $microsoftXrmDataPowerShellModule = '$(CoeTools_Microsoft_Xrm_Data_Powershell)'
+    Import-Module $microsoftXrmDataPowerShellModule -Force -RequiredVersion $(XrmDataPowerShellVersion) -ArgumentList @{ NonInteractive = $true }
+    $ConnectionString = "AuthType=ClientSecret;ClientId=$(connectionVariables.BuildTools.ApplicationId);ClientSecret=$(connectionVariables.BuildTools.ClientSecret);Url=$(connectionVariables.BuildTools.DataverseConnectionString)"
+    $conn = Get-CrmConnection -ConnectionString $ConnectionString
+    $businessUnits = Get-CrmRecords -conn $conn -EntityLogicalName businessunit -FilterAttribute "parentbusinessunitid" -FilterOperator "null" -Fields "parentbusinessunitid", "name"
+    if ($businessUnits.Count -eq 0){
+        Write-Host "Root Business unit NOT found"
+        
+        # Set the SolutionExists as a global variable for use in other templates
+        #echo "##vso[task.setvariable variable=SolutionExists]false"
+        Write-Host "##vso[task.logissue type=error]Could not find a root business unit!!"
+        exit 1;
+    }
+    else {
+        Write-Host "Root Business unit found"
+        $rootbusinessunitid = $businessUnits.CrmRecords[0].businessunitid
+        $rootbusinessunitname = $businessUnits.CrmRecords[0].name
+        Write-Host "Root Business Unit Id: $rootbusinessunitid"
+        Write-Host "Root Business Unit Name: $rootbusinessunitname"
+        Write-Host "##vso[task.setvariable variable=RootBusinessUnitId;isOutput=true]$rootbusinessunitid"
+    }
+  displayName: Get root business ID from PP environment
+  name: GetRootBusinessUnitId

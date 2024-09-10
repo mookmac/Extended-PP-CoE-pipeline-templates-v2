@@ -1,0 +1,112 @@
+parameters:
+- name: ppPackages
+  type: object
+  default:
+    solutions: []
+
+- name: artifactServiceConnectionName
+  type: string
+
+- name: deployToDEV
+  type: boolean
+
+- name: devServiceConn
+  type: string
+  default: ""
+
+- name: sitServiceConn
+  type: string
+  default: ""
+
+- name: uatServiceConn
+  type: string
+  default: ""
+  
+- name: prodServiceConn
+  type: string
+  default: ""
+
+- name: skipSITStage
+  type: boolean
+
+- name: skipUATStage
+  type: boolean
+
+- name: skipProdStage
+  type: boolean
+
+- name: overwriteUnmanagedCustomizations
+  type: boolean
+
+stages:  
+- stage: DEV
+  condition: eq('${{ parameters.deployToDEV }}', 'true')
+  variables:
+  - name: overwriteUnmanagedCustomizationsString
+    value: $[lower(${{ parameters.overwriteUnmanagedCustomizations }})]
+  - group: pp-common
+
+  jobs:
+  - template: pp-deploy-package-jobs.yml
+    parameters:
+      ppPackages: ${{ parameters.ppPackages }}
+      jobEnvironmentName: Dev #pp-env-dev
+      stageName: DEV #  cannot use $(System.StageName) as it is not available in templates as per: https://docs.microsoft.com/en-us/azure/devops/pipelines/build/variables?view=azure-devops&tabs=yaml
+      ppServiceConnectionName: ${{ parameters.devServiceConn }}
+      #crmConnectionString: $(connectionString)
+      artifactServiceConnectionName: ${{ parameters.artifactServiceConnectionName }}
+      overwriteUnmanagedCustomizations: $(overwriteUnmanagedCustomizationsString)
+
+- stage: TEST
+  dependsOn: DEV
+  condition: and(in(dependencies.DEV.result, 'Skipped', 'Succeeded'), eq('${{ parameters.skipSITStage }}', 'false'))
+  variables:
+  - name: overwriteUnmanagedCustomizationsString
+    value: $[lower(${{ parameters.overwriteUnmanagedCustomizations }})]
+  - group: pp-common
+
+  jobs:
+  - template: pp-deploy-package-jobs.yml
+    parameters:
+      ppPackages: ${{ parameters.ppPackages }}
+      jobEnvironmentName: QA
+      stageName: TEST #  cannot use $(System.StageName) as it is not available in templates as per: https://docs.microsoft.com/en-us/azure/devops/pipelines/build/variables?view=azure-devops&tabs=yaml
+      ppServiceConnectionName: ${{ parameters.sitServiceConn }}
+      artifactServiceConnectionName: ${{ parameters.artifactServiceConnectionName }}
+      overwriteUnmanagedCustomizations: $(overwriteUnmanagedCustomizationsString)
+  
+- stage: UAT
+  dependsOn: TEST
+  condition: and(in(dependencies.DEV.result, 'Skipped', 'Succeeded'), in(dependencies.TEST.result, 'Skipped', 'Succeeded'), eq('${{ parameters.skipUATStage }}', 'false'))
+  variables:
+  - name: overwriteUnmanagedCustomizationsString
+    value: $[lower(${{ parameters.overwriteUnmanagedCustomizations }})]
+  - group: pp-common
+
+  jobs:
+  - template: pp-deploy-package-jobs.yml
+    parameters:
+      ppPackages: ${{ parameters.ppPackages }}
+      jobEnvironmentName: UAT
+      stageName: UAT
+      ppServiceConnectionName: ${{ parameters.uatServiceConn }}
+      artifactServiceConnectionName: ${{ parameters.artifactServiceConnectionName }}
+      overwriteUnmanagedCustomizations: $(overwriteUnmanagedCustomizationsString)
+
+- stage: PROD
+  dependsOn: UAT
+  condition: and(in(dependencies.DEV.result, 'Skipped', 'Succeeded'), in(dependencies.TEST.result, 'Skipped', 'Succeeded'), in(dependencies.UAT.result, 'Skipped', 'Succeeded'), eq('${{ parameters.skipProdStage }}', 'false'))
+  variables:
+  - name: overwriteUnmanagedCustomizationsString
+    value: $[lower(${{ parameters.overwriteUnmanagedCustomizations }})]
+  - group: pp-common
+
+  jobs:
+  - template: pp-deploy-package-jobs.yml
+    parameters:
+      ppPackages: ${{ parameters.ppPackages }}
+      jobEnvironmentName: Prod
+      stageName: PROD
+      ppServiceConnectionName: ${{ parameters.prodServiceConn }}
+      artifactServiceConnectionName: ${{ parameters.artifactServiceConnectionName }}
+      overwriteUnmanagedCustomizations: $(overwriteUnmanagedCustomizationsString)

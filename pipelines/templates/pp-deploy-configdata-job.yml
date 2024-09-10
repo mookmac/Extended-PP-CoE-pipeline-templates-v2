@@ -1,0 +1,151 @@
+parameters:
+- name: packageName
+  type: string
+
+- name: packageVersion
+  type: string
+
+- name: packageType
+  type: string
+
+- name: dependsOnJobName
+  type: string
+
+- name: jobEnvironmentName
+  type: string
+  default: ""
+
+- name: stageName
+  type: string
+
+- name: artifactServiceConnectionName
+  type: string
+
+- name: ppServiceConnectionName
+  type: string
+
+- name: crmConnectionString
+  type: string
+  
+jobs:
+- deployment: ${{ replace(parameters.packageName,'-','_') }}_${{ parameters.stageName }} # name of the deployment job, A-Z, a-z, 0-9, and underscore. The word "deploy" is a keyword and is unsupported as the deployment name.
+  displayName: ${{ parameters.packageName }} ${{ parameters.packageVersion }} config data deployment  # friendly name to display in the UI
+  ${{ if ne(length(parameters.dependsOnJobName), 0) }}:
+    dependsOn: ${{ replace(parameters.dependsOnJobName,'-','_') }}_${{ parameters.stageName }}
+  ${{ if eq(length(parameters.dependsOnJobName), 0) }}:
+    dependsOn: []
+  pool:                # not required for virtual machine resources
+    vmImage: windows-latest
+  workspace:
+    clean: all
+  environment: ${{ parameters.jobEnvironmentName }} #pp-qa
+  variables:
+  - name: crmConnectionString
+    value: ${{parameters.crmConnectionString}}
+  strategy:
+    runOnce:    #rolling, canary are the other strategies that are supported
+      deploy:
+        steps:
+        - checkout: self 
+        - script: >
+            echo "Deploying PP config data package: ${{ parameters.packageName }}, version ${{ parameters.packageVersion }}"
+          displayName: Job description
+
+        - task: UniversalPackages@0
+          inputs:
+            command: 'download'
+            downloadDirectory: '$(Build.SourcesDirectory)\${{ parameters.packageName }}'
+            feedsToUse: 'external'
+            externalFeedCredentials: ${{ parameters.artifactServiceConnectionName }}
+            feedDownloadExternal: $(ArtifactFeedId)
+            packageDownloadExternal: '${{ parameters.packageName }}'
+            versionDownloadExternal: '${{ parameters.packageVersion }}'
+            verbosity: 'Trace'
+
+        - task: PowerShell@2
+          displayName: Display files on agent after package download
+          condition: eq(variables['System.debug'], 'true')
+          inputs:
+            targetType: 'inline'
+            script: |  
+              Write-Host "Pipeline workspace: $env:PIPELINE_WORKSPACE"
+              Get-ChildItem -Path $env:PIPELINE_WORKSPACE -Recurse
+
+        # Set variables for the artifact drop path
+        - powershell: |
+            $artifactDropPath = "$(Build.SourcesDirectory)/${{ parameters.packageName }}/"
+            #$artifactDropPath = '$(Pipeline.Workspace)/drop/'
+            #If (Test-Path -Path "$(Pipeline.Workspace)/buildPipeline/drop")
+            #{
+            #    $artifactDropPath = "$(Pipeline.Workspace)/buildPipeline/drop/"
+            #}
+            Write-Host "ArtifactDropPath: $artifactDropPath"
+            Write-Host "##vso[task.setVariable variable=ArtifactDropPath]$artifactDropPath"
+          displayName: 'Get artifact drop path for ${{ parameters.packageName }}'
+
+        - script: echo ArtifactDropPath = $(ArtifactDropPath)
+
+        - task: ExtractFiles@1
+          inputs:
+            archiveFilePatterns: '$(ArtifactDropPath)/*.zip'
+            destinationFolder: '$(Build.SourcesDirectory)/extracted-${{ parameters.packageName }}/'
+            cleanDestinationFolder: true
+            overwriteExistingFiles: true
+
+        - task: PowerShell@2
+          displayName: Display files on agent after package extraction
+          condition: eq(variables['System.debug'], 'true')
+          inputs:
+            targetType: 'inline'
+            script: |  
+              Write-Host "Pipeline workspace: $env:PIPELINE_WORKSPACE"
+              Get-ChildItem -Path $env:PIPELINE_WORKSPACE -Recurse
+
+        - task: qetza.replacetokens.replacetokens-task.replacetokens@5
+          inputs:
+            rootDirectory: '$(Build.SourcesDirectory)/extracted-${{ parameters.packageName }}/'
+            targetFiles: '**/*.xml'
+            encoding: 'auto'
+            tokenPattern: 'default'
+            writeBOM: true
+            actionOnMissing: 'warn'
+            keepToken: false
+            actionOnNoFiles: 'continue'
+            enableTransforms: false
+            useLegacyPattern: false
+            enableTelemetry: true
+
+        - task: ArchiveFiles@2
+          inputs:
+            rootFolderOrFile: '$(Build.SourcesDirectory)/extracted-${{ parameters.packageName }}/'
+            includeRootFolder: false
+            archiveType: 'zip'
+            archiveFile: '$(Build.ArtifactStagingDirectory)/${{ parameters.packageName }}/data-import.zip'
+            replaceExistingArchive: true
+            verbose: true
+
+        - task: PowerShell@2
+          displayName: Display files on agent after package re-archive
+          condition: eq(variables['System.debug'], 'true')
+          inputs:
+            targetType: 'inline'
+            script: |  
+              Write-Host "Pipeline workspace: $env:PIPELINE_WORKSPACE"
+              Get-ChildItem -Path $env:PIPELINE_WORKSPACE -Recurse
+
+        - task: PublishPipelineArtifact@1
+          enabled: true
+          condition: and(succeeded(), eq(variables['System.debug'], 'true'))
+          displayName: 'Publish Re-archived data import'
+          inputs:
+            targetPath: '$(Build.ArtifactStagingDirectory)/${{ parameters.packageName }}/data-import.zip'
+            artifact: 'DataImportFile-Attempt-$(System.JobAttempt)-$(System.StageDisplayName)-${{ parameters.packageName }}'
+            publishLocation: 'pipeline'
+
+        - template: pp-import-configuration-data.yml
+          parameters:
+            dataimportzipfolderpath: '$(Build.ArtifactStagingDirectory)/${{ parameters.packageName }}'
+            dataimportzipfilename: 'data-import.zip'
+            crmConnectionString: $(crmConnectionString)
+            packageName: ${{ parameters.packageName }}
+            serviceConnection: ${{ parameters.ppServiceConnectionName }}

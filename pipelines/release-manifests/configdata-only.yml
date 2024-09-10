@@ -1,0 +1,63 @@
+parameters:
+- name: ppPackages
+  type: object
+  default:
+  - name: pp-config-data-environmentsetupdata
+    version: 1.0.0
+    type: envconfigdata
+    dependsOn: ''
+
+- name: deployToDEV
+  displayName: 'Deploy to DEV - only use in emergency'
+  type: boolean
+
+- name: devServiceConn
+  displayName: 'DEV PP Service Connection'
+  type: string
+  default: 'Power-Dev'
+
+- name: sitServiceConn
+  displayName: 'QA PP Service Connection'
+  type: string
+  default: 'Power-QA'
+  
+- name: uatServiceConn
+  displayName: 'UAT PP Service Connection'
+  type: string
+  default: 'Power-UAT'
+  
+- name: prodServiceConn
+  displayName: 'Prod PP Service Connection'
+  type: string
+  default: 'Power-Prod'
+
+- name: skipSITStage
+  displayName: 'Skip SIT stage - only use in emergency'
+  type: boolean
+
+- name: skipUATStage
+  displayName: 'Skip UAT stage - only use in emergency'
+  type: boolean
+
+- name: skipProdStage
+  displayName: 'Skip Prod stage - only use in emergency'
+  type: boolean
+
+- name: overwriteUnmanagedCustomizations
+  type: boolean
+
+extends:
+    template: ..\templates\pp-deploy-stages.yml
+    parameters:
+      ppPackages: ${{ parameters.ppPackages }}
+      artifactServiceConnectionName: 'Artifact Feed SC'
+      deployToDEV: ${{ parameters.deployToDEV }}
+      devServiceConn: ${{ parameters.devServiceConn }}
+      sitServiceConn: ${{ parameters.sitServiceConn }}
+      uatServiceConn: ${{ parameters.uatServiceConn }}
+      prodServiceConn: ${{ parameters.prodServiceConn }}
+      skipSITStage: ${{ parameters.skipSITStage }}
+      skipUATStage: ${{ parameters.skipUATStage }}
+      skipProdStage: ${{ parameters.skipProdStage }}
+      overwriteUnmanagedCustomizations: ${{ parameters.overwriteUnmanagedCustomizations }}
+    

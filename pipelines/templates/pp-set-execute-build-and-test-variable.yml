@@ -1,0 +1,22 @@
+# set a variable to flag whether or not to build and test plugins
+steps:
+- powershell: |
+    $PathToPlugins = "$(Build.SourcesDirectory)\$(RepoName)\$(SolutionSourceFolder)\$(SolutionName)\plugins"
+    $BuildAndTestPlugins = "false"
+    if(Test-Path $PathToPlugins) {
+        $SolutionFiles = Get-ChildItem (Join-Path $PathToPlugins '*.sln') -File
+        if ($SolutionFiles.Count -gt 0) {
+            Write-Host "One or more plugin solutions exist"
+            $BuildAndTestPlugins = "true"
+        }
+        else {
+            Write-Host "No plugin solutions exist"
+            $BuildAndTestPlugins = "false"
+        }
+    }
+    else {
+        Write-Host "Plugins folder does not exist"
+        $BuildAndTestPlugins = "false"
+    }
+    Write-Host "##vso[task.setvariable variable=BuildAndTestCode]$BuildAndTestPlugins"
+  displayName: Determine whether to build and unit test plugins

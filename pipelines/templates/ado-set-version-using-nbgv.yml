@@ -1,0 +1,41 @@
+parameters:
+  - name: sourceToVersionFolder
+    type: string
+    default: ''
+  
+steps:
+- task: DotNetCoreCLI@2  
+  inputs:
+    command: custom
+    custom: tool
+    arguments: install --tool-path . nbgv
+  displayName: Install NerdBank GitVersioning (NBGV) tool
+
+- task: PowerShell@2
+  displayName: Display files on agent
+  condition: eq(variables['System.debug'], 'true')
+  inputs:
+    targetType: 'inline'
+    script: |  
+      Write-Host "Pipeline workspace: $env:PIPELINE_WORKSPACE"
+      Get-ChildItem -Path $env:PIPELINE_WORKSPACE -Recurse
+
+- powershell: |
+    Write-Host "Folder path to be versioned: ${{ parameters.sourceToVersionFolder }}"
+    If (-Not(Test-Path '${{ parameters.sourceToVersionFolder }}')) {
+        Write-Host "Folder to be versioned does not exist! Stopping pipeline"
+        exit 1;
+    }
+  displayName: 'Check if folder to be versioned exists'
+  continueOnError: false
+
+# navigate to folder which you want to version e.g. src/power-platform/solutions/xxx
+- script: |
+    cd ${{ parameters.sourceToVersionFolder }}
+    $(Build.SourcesDirectory)/nbgv cloud -c -a
+  displayName: Set Version using NerdBank GitVersioning
+  continueOnError: false
+
+- powershell: |
+    Write-Host "##vso[build.updatebuildnumber]$(NBGV_SemVer2)"
+  displayName: Update the build number to use semver 2 format which is supported by Universal Packages

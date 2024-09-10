@@ -1,0 +1,158 @@
+resources:
+  repositories:
+  - repository: PipelineRepo  # repository name (DO NOT CHANGE THIS VALUE) 
+    type: git
+    name: coe-alm-accelerator-templates  #This is the name of the repo in the current project in Azure Devops that has the pipeline templates. If the repo is in a different project you can specify the project and repo using the format ProjectContainingTheBuildTemplates/RepositoryContainingTheBuildTemplates (https://docs.microsoft.com/en-us/azure/devops/pipelines/yaml-schema?view=azure-devops&tabs=schema%2Cparameter-schema#type)
+
+parameters:
+- name: SolutionName
+  displayName: 'PP Solution name'
+  type: string
+  default: 'myFavouriteSolution'
+
+- name: CommitMessage
+  displayName: 'Commit Message'
+  type: string
+  default: ''
+
+- name: serviceConnection
+  displayName: 'Name of the ServiceConnection to the PP environment to export the data from'
+  type: string
+  default: 'Power-Dev'
+
+- name: AutoCompletePR
+  type: string
+  default: "true"
+
+- name: BuildAndRunUnitTests
+  type: string
+  default: "false"
+
+- name: VariableGroup
+  type: string
+  default: "pp-common"
+
+- name: solutionSourceFolder
+  type: string
+  default: 'src\power-platform\solutions'
+
+name: '${{ parameters.serviceConnection }}-$(Date:yyyyMMdd)$(Rev:.r)'
+trigger: none
+
+pool:
+  vmImage: 'windows-latest'
+
+# NOTE: If you want to use different values for these variables, you can remove the variable group and attach them directly to this pipeline. The group specified below is a variable group defined in the Library for the Pipelines
+variables:
+- group: ${{parameters.variableGroup}}
+- name: formattedDateTimestamp
+  value: $[format('{0:yyyy}-{0:MM}-{0:dd}-{0:HH}{0:mm}', pipeline.startTime)]
+- name: project
+  value: 'MyADOProject'
+- name: repo
+  value: 'Applications-Source'
+- name: createSolutionBranch
+  value: 'true'
+- name: branchToCreate
+  value: '${{ parameters.SolutionName }}-$(formattedDateTimestamp)'
+- name: branch
+  value: 'main'
+- name: createPR
+  value: 'true'
+- name: PRTargetBranch
+  value: 'main'
+
+stages: 
+- stage: ExportSolution
+  jobs:
+  - job: ExportPPSolution
+    displayName: 'Export PP solution'
+    steps:    
+    - task: PowerPlatformToolInstaller@2
+      displayName: 'Power Platform Tool Installer'
+
+    - pwsh: |
+        # Workaround for git Filename too long issue 
+        git config --system core.longpaths true        
+      displayName: "Configuring core.longpaths true"
+
+    # Checkout Pipelines
+    - checkout: PipelineRepo
+      path: 'PipelineUtils'
+      displayName: 'Checkout Pipeline Branch'
+    
+    # Checkout our Branch
+    - checkout: git://$(project)/$(repo)@$(branch)
+      displayName: 'Checkout Source Branch'
+
+    - task: PowerPlatformSetConnectionVariables@2
+      displayName: 'Set Connection Variables'
+      name: pipelineConnectionVariables
+      inputs:
+        authenticationType: 'PowerPlatformSPN'
+        PowerPlatformSPN: '${{parameters.serviceConnection}}'
+
+    # Other tasks, which use the PowerApps PowerShell cmdlets, need the environment guid.  Setting it for future use.
+    - template: Pipelines\Templates\export-Solution.yml@PipelineRepo
+      parameters:
+        project: 'MyADOProject' #The name of the Azure DevOps Project to which we are exporting our solution.
+        repo: '$(repo)\${{ parameters.solutionSourceFolder }}' #The name of the Azure DevOps Repo to which we are exporting our solution.
+        branch: '$(branch)' #The name of the Azure DevOps Branch in the Repo above to which we are exporting our solution.
+        branchToCreate: '$(branchToCreate)' #The name of the new Azure DevOps Branch to create in the Repo above to which we are exporting our solution (Optional).
+        createSolutionBranch: $(createSolutionBranch)
+        commitMessage: '${{ parameters.CommitMessage }}' #The commit message for this commit.
+        email: '$(Build.QueuedBy)' #The email of the user performing the commit.
+        serviceConnectionName: '${{ parameters.serviceConnection }}' #The name of the service connection to Power Platform from which we'll be pulling the solution.
+        serviceConnectionUrl: '$(BuildTools.EnvironmentUrl)' #The url of the service connection to Power Platform from which we'll be pulling the solution.
+        solutionName: ${{parameters.SolutionName}} #The name of the solution being exported (i.e. Not the Display Name).
+        userName: '$(Build.RequestedFor)' #The Display name of the user performing the commit.
+        configurationData: $(Data)
+        #portalSiteName: ${{parameters.PortalSiteName}}
+        #publishCustomizations: ${{parameters.PublishCustomizations}}
+        #commitScope: ${{parameters.CommitScope}}
+        #agentPool: ${{parameters.AgentPool}}
+        #artifactUrl: ${{parameters.ArtifactUrl}}
+        #pipelineStageRunId: ${{parameters.PipelineStageRunId}}
+        #pipelineServiceConnectionName: ${{parameters.PipelineServiceConnectionName}}
+        #pipelineServiceConnectionUrl: ${{parameters.PipelineServiceConnectionUrl}}
+      
+    - pwsh: |
+        New-Item -ItemType Directory -Force -Path "$(Build.SourcesDirectory)\$(Build.Repository.Name)\${{parameters.SolutionName}}"
+        Copy-Item -Path "$(Build.SourcesDirectory)\$(repo)\${{ parameters.solutionSourceFolder }}\${{parameters.SolutionName}}\*" -Destination "$(Build.SourcesDirectory)\$(Build.Repository.Name)\${{parameters.SolutionName}}" -Recurse
+      displayName: 'Move unpacked solution to the build directory'
+      condition: and(succeeded(), eq('${{parameters.BuildAndRunUnitTests}}', 'true'))
+
+    # Conditionally build and run unit tests on the newly created branch
+    - ${{ if eq(parameters.BuildAndRunUnitTests, 'true') }}:
+      - template: Pipelines\Templates\build-Solution.yml@PipelineRepo
+        parameters:
+          buildType: 'Both'
+          serviceConnectionName: ${{ parameters.serviceConnection }}
+          serviceConnectionUrl: $(BuildTools.EnvironmentUrl)
+          solutionName: ${{parameters.SolutionName}}
+          skipSolutionVersioning: 'true'
+
+    # Conditionally create a pull request to the solution branch for the new branch
+    - pwsh: |
+        . "$env:POWERSHELLPATH/pipeline-functions.ps1"
+
+        $sourceBranch = "$(branch)"
+        if("$(branchToCreate)" -ne "Commit to existing branch specified in Branch parameter") {
+          $sourceBranch = "$(branchToCreate)"
+        }
+
+        $targetBranch = "$(branch)"
+        if("$(PRTargetBranch)" -ne "NA" -and "$(PRTargetBranch)" -ne "") {
+          $targetBranch = "$(PRTargetBranch)"
+        }
+        elseif("$(createSolutionBranch)" -eq "true") {
+          $targetBranch = "${{parameters.SolutionName}}"
+        }
+
+        $encodedCommitMessage = "${{parameters.CommitMessage}}".replace("`n",", ").replace("`r",", ")
+        $encodedCommitMessage = $encodedCommitMessage -creplace '\P{IsBasicLatin}'
+        New-Pull-Request -solutionName "${{parameters.SolutionName}}" -org "$(System.TeamFoundationCollectionUri)" -project "$(project)" -repo "$(repo)" -branch "$(branch)" -sourceBranch "refs/heads/$sourceBranch" -targetBranch "refs/heads/$targetBranch" -encodedCommitMessage "$encodedCommitMessage" -autocompletePR "${{parameters.AutoCompletePR}}" -accessToken "$env:SYSTEM_ACCESSTOKEN"
+      env:
+        SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      displayName: 'Create a pull request for the new branch'
+      condition: and(succeeded(), eq(variables.createPR, 'true'))

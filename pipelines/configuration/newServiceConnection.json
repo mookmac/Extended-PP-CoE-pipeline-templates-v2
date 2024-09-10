@@ -1,0 +1,25 @@
+{
+  "data": {},
+  "name": "#{envUrl}#",
+  "type": "powerplatform-spn",
+  "url": "https://#{envUrl}#",
+  "authorization": {
+    "parameters": {
+      "tenantId": "00000000-0000-0000-0000-0000000000000",
+      "applicationId": "#appId#",
+      "clientSecret": "#clientSecret#"
+    },
+    "scheme": "None"
+  },
+  "isShared": false,
+  "isReady": true,
+  "serviceEndpointProjectReferences": [
+    {
+      "projectReference": {
+        "id": "#{projectId}#",
+        "name": "#{projectName}#"
+      },
+      "name": "#{envUrl}#"
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+parameters:
+- name: manifestfilename
+  type: string
+  default: pp-latest-managed.yml
+
+- name: deployToDEV
+  displayName: 'Deploy to DEV environment'
+  type: boolean  
+  default: false
+
+- name: devServiceConn
+  displayName: 'DEV PP Service Connection'
+  type: string  
+  default: 'Power-DEV'
+
+- name: sitServiceConn
+  displayName: 'QA PP Service Connection'
+  type: string  
+  default: 'Power-QA'
+
+- name: uatServiceConn
+  displayName: 'UAT PP Service Connection'
+  type: string  
+  default: 'Power-UAT'
+
+- name: prodServiceConn
+  displayName: 'Prod PP Service Connection'
+  type: string  
+  default: 'Power-Prod'
+
+- name: skipQAStage
+  displayName: 'Skip QA stage'
+  type: boolean  
+  default: false
+
+- name: skipUATStage
+  displayName: 'Skip UAT stage'
+  type: boolean
+  default: false
+
+- name: skipProdStage
+  displayName: 'Skip Production stage'
+  type: boolean
+  default: false
+
+- name: overwriteUnmanagedCustomizations
+  displayName: 'Overwrite Unmanaged Customizations?'
+  type: boolean
+  default: false
+
+trigger: none
+
+resources:
+  repositories:
+  - repository: PipelineRepo  # repository name (DO NOT CHANGE THIS VALUE) 
+    type: git
+    #ref: topic/macveana/disable-slas-pipeline # If your pipeline templates are in a branch other than the default branch specify the branch here. Otherwise the default branch will be used by default.
+    name: coe-alm-accelerator-templates  # This is the name of the repo in the current project in Azure Devops that has the pipeline templates. If the repo is in a different project you can specify the project and repo using the format ProjectContainingTheBuildTemplates/RepositoryContainingTheBuildTemplates (https://docs.microsoft.com/en-us/azure/devops/pipelines/yaml-schema?view=azure-devops&tabs=schema%2Cparameter-schema#type)
+
+variables:
+  - group: pp-common
+  - group: powerplatform-qa-vars
+  - group: powerplatform-uat-vars
+  - group: powerplatform-prod-vars
+
+name: Deploy Power Platform release manifest ${{ parameters.manifestfilename }} on $(Date:yyyyMMdd)$(Rev:.r)
+
+extends:
+  template: release-manifests\${{ parameters.manifestfilename }}
+  parameters:
+    deployToDEV: ${{ parameters.deployToDEV }}
+    devServiceConn: ${{ parameters.devServiceConn }}
+    sitServiceConn: ${{ parameters.sitServiceConn }}
+    uatServiceConn: ${{ parameters.uatServiceConn }}
+    prodServiceConn: ${{ parameters.prodServiceConn }}
+    skipSITStage: ${{ parameters.skipQAStage }}
+    skipUATStage: ${{ parameters.skipUATStage }}
+    skipProdStage: ${{ parameters.skipProdStage }}
+    overwriteUnmanagedCustomizations: ${{ parameters.overwriteUnmanagedCustomizations }}

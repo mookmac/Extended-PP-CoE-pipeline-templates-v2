@@ -1,0 +1,95 @@
+parameters:
+- name: ppPackages
+  type: object
+  default:
+    solutions: []
+
+- name: jobEnvironmentName
+  type: string
+  default: ""
+
+- name: stageName
+  type: string
+
+- name: artifactServiceConnectionName
+  type: string
+
+- name: ppServiceConnectionName
+  type: string
+ 
+- name: overwriteUnmanagedCustomizations
+  type: string
+   
+jobs:
+#- job: GetConn
+#  displayName: 'Get Connection Strings from Service Connections'
+#  steps:
+#    - template: pp-set-connection-string-from-service-conn.yml
+#      parameters:
+#        serviceConnection: ${{ parameters.ppServiceConnectionName }}
+
+#- job: SetConnectionVariables  
+#  dependsOn: GetConn
+#  displayName: 'Set outputs from previous job into variables'
+#  steps:
+#    - powershell: |
+#        $connectionString="AuthType=ClientSecret;ClientId=$[GetConn.outputs['connectionVariables.BuildTools.ApplicationId']];ClientSecret=$[GetConn.outputs['connectionVariables.BuildTools.ClientSecret'];Url=$[GetConn.outputs['connectionVariables.BuildTools.DataverseConnectionString']"
+
+- ${{ each package in parameters.ppPackages }}:
+  # deploy env data packages first which don't rely on any solutions
+  - ${{ if eq(package.type, 'envconfigdata') }}:
+    - template: pp-deploy-configdata-job.yml
+      parameters:
+        packageName: ${{ package.name }}
+        packageVersion: ${{ package.version }}
+        packageType: ${{ package.type }}
+        dependsOnJobName: ${{ package.dependsOn }}
+        jobEnvironmentName: ${{ parameters.jobEnvironmentName }}
+        stageName: ${{ parameters.stageName }}
+        ppServiceConnectionName: ${{ parameters.ppServiceConnectionName }}
+        crmConnectionString: $(connectionString)
+        artifactServiceConnectionName: ${{ parameters.artifactServiceConnectionName }}
+
+  # then deploy solutions
+  - ${{ if eq(package.type, 'solution') }}:
+    - template: pp-deploy-solution-job.yml
+      parameters:
+        packageName: ${{ package.name }}
+        packageVersion: ${{ package.version }}
+        packageType: ${{ package.type }}
+        ismanaged: ${{ package.ismanaged }}
+        dependsOnJobName: ${{ package.dependsOn }}
+        jobEnvironmentName: ${{ parameters.jobEnvironmentName }}
+        stageName: ${{ parameters.stageName }}
+        ppServiceConnectionName: ${{ parameters.ppServiceConnectionName }}
+        crmConnectionString: $(connectionString)
+        artifactServiceConnectionName: ${{ parameters.artifactServiceConnectionName }}
+        OverwriteUnmanagedCustomizations:  ${{ parameters.overwriteUnmanagedCustomizations }}
+
+  # then deploy config data which rely on solutions
+  - ${{ if eq(package.type, 'configdata') }}:
+    - template: pp-deploy-configdata-job.yml
+      parameters:
+        packageName: ${{ package.name }}
+        packageVersion: ${{ package.version }}
+        packageType: ${{ package.type }}
+        dependsOnJobName: ${{ package.dependsOn }}
+        jobEnvironmentName: ${{ parameters.jobEnvironmentName }}
+        stageName: ${{ parameters.stageName }}
+        ppServiceConnectionName: ${{ parameters.ppServiceConnectionName }}
+        crmConnectionString: $(connectionString)
+        artifactServiceConnectionName: ${{ parameters.artifactServiceConnectionName }}
+
+  # then deploy portal data
+  #- ${{ if eq(package.type, 'portaldata') }}:
+  #  - template: pp-deploy-portaldata-job.yml
+  #    parameters:
+  #      packageName: ${{ package.name }}
+  #      packageVersion: ${{ package.version }}
+  #      packageType: ${{ package.type }}
+  #      dependsOnJobName: ${{ package.dependsOn }}
+  #      jobEnvironmentName: ${{ parameters.jobEnvironmentName }}
+  #      stageName: ${{ parameters.stageName }}
+  #      ppServiceConnectionName: ${{ parameters.ppServiceConnectionName }}
+  #      crmConnectionString: $(connectionString)
+  #      artifactServiceConnectionName: ${{ parameters.artifactServiceConnectionName }}

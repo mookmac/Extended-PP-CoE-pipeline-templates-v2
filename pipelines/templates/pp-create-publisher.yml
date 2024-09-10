@@ -1,0 +1,49 @@
+parameters:
+- name: ppEnvironmentUrl
+  type: string
+  default: ''
+- name: serviceConnection
+  displayName: 'Environment service connection name'
+  type: string
+  
+steps:
+- task: PowerPlatformSetConnectionVariables@2
+  displayName: 'Set Connection Variables'
+  name: connectionVariables
+  inputs:
+    authenticationType: 'PowerPlatformSPN'
+    PowerPlatformSPN: '${{parameters.serviceConnection}}'
+
+- powershell: |
+    $getTokenHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+    $getTokenHeaders.Add("Content-Type", "application/x-www-form-urlencoded")
+
+    $D365EnvScope = "https%3A%2F%2F${{parameters.ppEnvironmentUrl}}%2F.default"
+    Write-Host "D365EnvScope: $D365EnvScope"
+    $getTokenBody = "client_id=$(connectionVariables.BuildTools.ApplicationId)&client_secret=$(connectionVariables.BuildTools.ClientSecret)&grant_type=client_credentials&scope=$($D365EnvScope)"
+
+    $getTokenResponse = Invoke-RestMethod "https://login.microsoftonline.com/$(TenantDomain)/oauth2/v2.0/token" -Method 'POST' -Headers $getTokenHeaders -Body $getTokenBody
+
+    $createPublisherHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+    $createPublisherHeaders.Add("Authorization", "Bearer $($getTokenResponse.access_token)")
+    $createPublisherHeaders.Add("Content-Type", "application/json")
+
+    $body = "{
+    `n    `"uniquename`": `"$(PublisherName)`",
+    `n    `"friendlyname`": `"$(PublisherFriendlyName)`",
+    `n    `"customizationoptionvalueprefix`": $(PublisherValuePrefix),
+    `n    `"customizationprefix`": `"$(PublisherPrefix)`",
+    `n    `"description`": `"$(PublisherDescription)`",
+    `n    `"emailaddress`": `"$(PublisherEmail)`",
+    `n    `"supportingwebsiteurl`": `"$(PublisherWebsiteUrl)`",
+    `n    `"address1_line1`": `"$(PublisherAddressLine1)`",
+    `n    `"address1_line2`": `"$(PublisherAddressLine2)`",
+    `n    `"address1_city`": `"$(PublisherAddressCity)`",
+    `n    `"address1_postalcode`": `"$(PublisherAddressPostcode)`",
+    `n    `"address1_country`": `"$(PublisherCountry)`"
+    `n}"
+
+    $response = Invoke-RestMethod "https://${{parameters.ppEnvironmentUrl}}/api/data/v9.1/publishers" -Method 'POST' -Headers $createPublisherHeaders -Body $body
+    $response | ConvertTo-Json
+  name: CreatePowerPlatformPublisherInEnvironment
+  displayName: Create Power Platform publisher in environment

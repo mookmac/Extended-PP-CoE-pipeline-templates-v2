@@ -1,0 +1,194 @@
+resources:
+  repositories:
+  - repository: PipelineRepo  # repository name (DO NOT CHANGE THIS VALUE) 
+    type: git
+    name: coe-alm-accelerator-templates  #This is the name of the repo in the current project in Azure Devops that has the pipeline templates. If the repo is in a different project you can specify the project and repo using the format ProjectContainingTheBuildTemplates/RepositoryContainingTheBuildTemplates (https://docs.microsoft.com/en-us/azure/devops/pipelines/yaml-schema?view=azure-devops&tabs=schema%2Cparameter-schema#type)
+
+parameters:
+- name: dataFolderPath
+  displayName: 'Relative path to folder where the schema file is held and data will be extracted to'
+  type: string
+  default: 'power-platform\data\environmentSetupData\'
+
+- name: exportSchemaFilePath
+  displayName: 'Name of export schema file which must be located in above data folder path'
+  default: data-schema.xml
+
+- name: serviceConnection
+  displayName: 'Name of the ServiceConnection to the PP environment to export the data from'
+  type: string
+  default: 'Power-Dev'
+
+- name: branch
+  type: string
+  displayName: 'Name of branch to branch from'
+  default: 'main'
+
+- name: branchToCreate
+  type: string
+  displayName: 'Name of the new branch to create'
+  default: 'topic/pp-data-export'
+
+- name: commitMessage
+  displayName: 'Commit message to use on the export git branch commit'
+  type: string
+  default: ''
+
+- name: overrideAsyncWaitTimeoutInSecs
+  displayName: Deployment async Wait Timeout In Secs
+  type: number
+  default: 3200
+
+name: Extract PP data ${{parameters.exportSchemaFilePath}} $(Year:yyyy).$(Month).$(DayOfMonth).$(Rev:rr).$(Build.SourceBranchName).$(Build.Reason)
+
+trigger: none
+
+pool:
+  vmImage: 'windows-latest'
+ 
+variables: 
+#- group: ${{parameters.variableGroup}}
+
+- name: crmConnectionString
+  value: '$(CdsBaseConnectionString)${{parameters.serviceConnection}}'
+
+- name: 'extracted-data-zip-file-name'
+  value: 'extracted-data.zip'
+
+- name: formattedDateTimestamp
+  value: $[format('{0:yyyy}-{0:MM}-{0:dd}-{0:HH}{0:mm}', pipeline.startTime)]
+
+steps:
+- script: git config --system core.longpaths true
+  displayName: Set git to allow longpaths
+
+- checkout: self
+  persistCredentials: true
+
+# Configure email/name and checkout git branch
+- script: |
+   git config --global user.email $(Build.RequestedForEmail)
+   git config --global user.name "$(Build.RequestedFor)"
+   git fetch
+   git checkout origin/${{parameters.branch}} --track
+  workingDirectory: $(Build.SourcesDirectory)
+  displayName: 'Initialise Git'
+
+# If the BranchToCreate parameter *does not* contain an empty string, then
+# create a branch based on BranchToCreate parameter value and checkout that branch.
+- script: |
+   git checkout -b ${{parameters.branchToCreate}}-$(formattedDateTimestamp) ${{parameters.branch}}
+  displayName: 'Create New Git Branch: ${{parameters.branchToCreate}}-$(formattedDateTimestamp)'
+  workingDirectory: $(Build.SourcesDirectory)
+  condition: and(succeeded(), ne('${{ parameters.BranchToCreate }}', '')) # If an empty value is passed for the BranchToCreate parameters, then skip this task
+
+# Installs default Power Platform Build Tools
+- task: microsoft-IsvExpTools.PowerPlatform-BuildTools.tool-installer.PowerPlatformToolInstaller@2
+  displayName: 'Power Platform Tool Installer'
+
+# Set pipeline vars for tools paths.
+- template: Pipelines\Templates\set-tools-paths.yml@PipelineRepo
+
+- task: microsoft-IsvExpTools.PowerPlatform-BuildTools.export-data.PowerPlatformExportData@2
+  displayName: 'Power Platform Export Data'
+  inputs:
+    authenticationType: PowerPlatformSPN
+    PowerPlatformSPN: ${{parameters.serviceConnection}}
+    SchemaFile: '$(Build.SourcesDirectory)/${{parameters.dataFolderPath}}${{parameters.exportSchemaFilePath}}'
+    DataFile: '$(Build.SourcesDirectory)/${{parameters.dataFolderPath}}$(extracted-data-zip-file-name)'
+    Overwrite: true
+
+- task: PowerShell@2
+  displayName: Display files on agent after package re-archive
+  condition: always()
+  inputs:
+    targetType: 'inline'
+    script: |  
+      Write-Host "Pipeline workspace: $env:PIPELINE_WORKSPACE"
+      Get-ChildItem -Path $env:PIPELINE_WORKSPACE -Recurse
+
+#- task: PublishPipelineArtifact@1
+#  condition: always()
+#  enabled: true
+#  displayName: 'Publish Data Export Logs'
+#  inputs:
+#    targetPath: '$(Build.ArtifactStagingDirectory)'
+#    artifact: 'DataExportLogs'
+#    publishLocation: 'pipeline'
+
+- task: ExtractFiles@1
+  inputs:
+    archiveFilePatterns: '$(Build.SourcesDirectory)/${{parameters.dataFolderPath}}$(extracted-data-zip-file-name)'
+    destinationFolder: '$(Build.SourcesDirectory)/${{parameters.dataFolderPath}}extracted-data'
+
+- task: PowerShell@2
+  displayName: "Remove extracted zip file"
+  inputs:
+    targetType: 'inline'
+    script: 'Remove-Item -Path "$(Build.SourcesDirectory)/${{parameters.dataFolderPath}}$(extracted-data-zip-file-name)" -Force'
+
+- template: Pipelines\Templates\install-powershell-modules.yml@PipelineRepo
+  parameters:
+    skipBuildToolsInstaller: 'false'
+
+- template: templates\pp-get-root-business-unit-id.yml
+  parameters:
+    serviceConnection: '${{parameters.serviceConnection}}'
+
+# insert replace tokens task
+- powershell: |
+    $PathToExtractDataXml = "$(Build.SourcesDirectory)/${{parameters.dataFolderPath}}extracted-data\data.xml"
+    [xml]$xmlDoc = New-Object system.Xml.XmlDocument
+
+    # Read the existing file
+    [xml]$xmlDoc = Get-Content $PathToExtractDataXml
+
+    $entities = $xmlDoc.entities.entity
+    $entities | % { 
+      if ($_.name -eq 'businessunit') {
+        $records = $_.records.record
+        $records | % {
+          $_.field | ForEach-Object {
+            if (($_.name -eq 'parentbusinessunitid') -and ($_.value -eq '$(GetRootBusinessUnitId.RootBusinessUnitId)'))
+            {
+                $_.value = "#{TargetEnvRootBusinessUnitId}#"
+                $_.lookupentityname = "#{TargetEnvRootBusinessUnitName}#"
+            }
+          }
+        }
+      }
+    }
+    $xmlDoc.Save($PathToExtractDataXml)
+  workingDirectory: $(Build.SourcesDirectory)
+  displayName: 'Insert placeholders for Business Units'
+
+- powershell: |
+    git add --all
+  workingDirectory: $(Build.SourcesDirectory)
+  displayName: 'Add Changes to Git Branch'
+
+# Commit all changes to Git branch. If there are no changes we want to warn the user that there was nothing to commit. As this could mean there was a user error involved.
+- powershell: |
+    $gitStatus = iex "git status --porcelain"
+    if ($gitStatus) {
+        git commit -m "${{parameters.commitMessage}}"
+    }
+    else {
+        Write-Host "##vso[task.logissue type=warning]There is nothing to commit. No changes have been made since the previous commit. If this is unexpected make sure your changes have been published before committing again."
+        exit 1;
+    }
+  workingDirectory: $(Build.SourcesDirectory)
+  displayName: 'Commit Changes to Git Branch'
+  continueOnError: true
+
+# Push to the branch specified in the BranchToCreate parameter
+- script: |
+   git -c http.extraheader="AUTHORIZATION: bearer $(System.AccessToken)" push origin ${{parameters.branchToCreate}}-$(formattedDateTimestamp)
+  workingDirectory: $(Build.SourcesDirectory)
+  displayName: 'Push to ${{parameters.branchToCreate}}-$(formattedDateTimestamp) Local Branch'
+
+- script: |
+   az repos pr create --auto-complete false --bypass-policy false --delete-source-branch true --draft true --description "Exported data in ${{parameters.dataFolderPath}}' --repository $(Build.Repository.ID) --source-branch ${{parameters.branchToCreate}}-$(formattedDateTimestamp) --target-branch main
+  displayName: 'Create Pull Request'
+  env:
+    AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)

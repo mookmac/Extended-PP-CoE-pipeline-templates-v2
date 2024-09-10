@@ -1,0 +1,72 @@
+parameters:
+- name: ppPackages
+  type: object
+  default:
+  - name: pp-config-data-directoratetemplate
+    version: 1.1.4 #potentially a bit of a risk hardcoding this, but we'll trust devs to update it if necessary
+    type: envconfigdata
+    dependsOn: ''
+
+- name: newDirectorateNames
+  type: object
+  default:
+  - "New directorate 1"
+  - "New directorate 2"
+  - "New directorate 3"
+
+- name: artifactServiceConnectionName
+  type: string
+  default: "Artifact Feed SC"
+
+- name: targetEnvServiceConn
+  type: string
+  default: "DemoDevSC"
+
+- name: targetADOEnv
+  type: string
+  default: "Dev"
+
+- name: targetEnvVariableGroup
+  type: string
+  default: "demo-dev-vars"
+
+trigger: none
+
+resources:
+  repositories:
+  - repository: PipelineRepo  # repository name (DO NOT CHANGE THIS VALUE) 
+    type: git
+    #ref: topic/macveana/disable-slas-pipeline # If your pipeline templates are in a branch other than the default branch specify the branch here. Otherwise the default branch will be used by default.
+    name: coe-alm-accelerator-templates  # This is the name of the repo in the current project in Azure Devops that has the pipeline templates. If the repo is in a different project you can specify the project and repo using the format ProjectContainingTheBuildTemplates/RepositoryContainingTheBuildTemplates (https://docs.microsoft.com/en-us/azure/devops/pipelines/yaml-schema?view=azure-devops&tabs=schema%2Cparameter-schema#type)
+
+stages:  
+- stage: Initialise
+  jobs:
+  - job: GetConn
+    displayName: 'Get Connection Strings from Service Connections'
+    steps:
+      - template: templates/pp-set-connection-string-from-service-conn.yml
+        parameters:
+          serviceConnection: ${{ parameters.targetEnvServiceConn }}
+
+- ${{ each directorate in parameters.newDirectorateNames }} :
+    - stage: Create_${{ replace(replace(replace(replace(replace(directorate, ' ', '_'), '&','_'), ',','_'), '''','_'),'’','_') }}
+      displayName: "Create ${{ directorate }}"
+      dependsOn: Initialise
+      variables:
+        - group: pp-common
+        - group: ${{ parameters.targetEnvVariableGroup }}
+        - name: connectionString
+          value: "AuthType=ClientSecret;ClientId=$[stageDependencies.Initialise.GetConn.outputs['connectionVariables.BuildTools.ApplicationId']];ClientSecret=$[stageDependencies.Initialise.GetConn.outputs['connectionVariables.BuildTools.ClientSecret'];Url=$[stageDependencies.Initialise.GetConn.outputs['connectionVariables.BuildTools.DataverseConnectionString']"
+        - name: newDirectorateName
+          value: "${{ directorate }}"
+
+      jobs:
+      - template: templates/pp-deploy-package-jobs.yml
+        parameters:
+          ppPackages: ${{ parameters.ppPackages }}
+          jobEnvironmentName: ${{ parameters.targetADOEnv }}
+          stageName: Create #  cannot use $(System.StageName) as it is not available in templates as per: https://docs.microsoft.com/en-us/azure/devops/pipelines/build/variables?view=azure-devops&tabs=yaml
+          ppServiceConnectionName: ${{ parameters.targetEnvServiceConn }}
+          crmConnectionString: $(connectionString)
+          artifactServiceConnectionName: ${{ parameters.artifactServiceConnectionName }}

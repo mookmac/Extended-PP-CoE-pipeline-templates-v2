@@ -1,0 +1,37 @@
+[
+    {
+        "name": "EnvironmentType",
+        "value": "<EnvironmentTypeValue>",
+        "isSecret": false
+    },
+    {
+        "name": "EnvironmentName",
+        "value": "<EnvironmentNameValue>",
+        "isSecret": false
+    },
+    {
+        "name": "PacPortalDeploymentProfile",
+        "value": "<PacPortalDeploymentProfileValue>",
+        "isSecret": false
+    },
+    {
+        "name": "ServiceConnection",
+        "value": "<ServiceConnectionValue>",
+        "isSecret": false
+    },
+    {
+        "name": "TargetEnvRootBusinessUnitId",
+        "value": "<TargetEnvRootBusinessUnitIdValue>",
+        "isSecret": false
+    },
+    {
+        "name": "TargetEnvRootBusinessUnitName",
+        "value": "<TargetEnvRootBusinessUnitName>",
+        "isSecret": false
+    },
+    {
+        "name": "TriggerSolutionUpgrade",
+        "value": "<TriggerSolutionUpgrade>",
+        "isSecret": false
+    }
+]

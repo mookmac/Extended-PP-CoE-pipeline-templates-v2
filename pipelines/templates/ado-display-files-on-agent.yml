@@ -1,0 +1,14 @@
+parameters:
+- name: taskDisplayName
+  type: string
+  default: 'Display files on agent'
+
+steps:
+- task: PowerShell@2
+  displayName: ${{parameters.taskDisplayName}}
+  condition: eq(variables['System.Debug'], true)
+  inputs:
+      targetType: 'inline'
+      script: |
+        Write-Host "Pipeline workspace: $env:PIPELINE_WORKSPACE"
+        Get-ChildItem -Path $env:PIPELINE_WORKSPACE -Recurse

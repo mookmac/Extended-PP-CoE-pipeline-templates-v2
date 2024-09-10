@@ -1,0 +1,19 @@
+parameters:
+- name: serviceConnection
+  displayName: 'Environment service connection name'
+  type: string
+
+steps:
+# Installs default Power Platform Build Tools
+- task: microsoft-IsvExpTools.PowerPlatform-BuildTools.tool-installer.PowerPlatformToolInstaller@2
+  displayName: 'Power Platform Tool Installer'
+
+# Set pipeline vars for tools paths.
+- template: Pipelines\Templates\set-tools-paths.yml@PipelineRepo
+
+- task: PowerPlatformSetConnectionVariables@2
+  displayName: 'Set Connection Variables'
+  name: connectionVariables
+  inputs:
+    authenticationType: 'PowerPlatformSPN'
+    PowerPlatformSPN: '${{parameters.serviceConnection}}'

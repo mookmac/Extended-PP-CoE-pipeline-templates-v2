@@ -1,0 +1,85 @@
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - 'power-platform/data/*/extracted-data/*'
+
+pool: 
+  vmImage: 'windows-latest'
+
+variables:
+#- group: pp-common
+
+- name: ArtifactFeedId
+  value: '000-000-000-000' # replace this with the project feed (in format "project id/feed id")
+
+- name: ExtractedDataFolderPath
+  value: '$(Build.Repository.Name)/power-platform/data/environmentSetupData/extracted-data/' # this should match the trigger include paths without the wildcard
+
+- name: PackageDescription
+  value: 'Commit: $(Build.SourceVersion) $(Build.SourceVersionMessage)'
+
+- name: DataImportZipFilename
+  value: 'data-import.zip'
+
+stages:
+- stage: 'Build_and_Publish_data_package'
+  condition: and(succeeded(), or(eq(variables['Build.Reason'], 'IndividualCI'), eq(variables['Build.Reason'], 'Manual')))
+  jobs:
+  - job: 
+    steps:
+    - script: git config --system core.longpaths true
+      displayName: Set git to allow longpaths
+      
+    - checkout: self
+      displayName: 'Checkout Source Branch'
+
+    - powershell: |
+          ## get the changed files
+          $files=$(git diff HEAD HEAD~ --name-only)
+          $files
+          $temp=$files -split ' '
+          $count=$temp.Length
+          echo "Total changed $count files"
+        
+          $files | %{ $_ -replace '\/[^\/]*$', '' } | ? { $_.trim() -ne "" } | Select -Unique | ForEach-Object {
+            $diffPath=$_ 
+            $diffPath
+              }
+
+          echo "##vso[task.setvariable variable=myOutputVar;isOutput=true]$diffPath"
+          echo "##vso[task.setvariable variable=myOutputVarLower;isOutput=true]$($diffPath.ToLower().replace('power-platform/data/','').replace('extracted-data','').replace('/',''))"
+      name: PWSGetChanges
+      displayName: 'Get changed file paths for processing'
+
+    - template: templates\ado-set-version-using-nbgv.yml
+      parameters:
+        sourceToVersionFolder: $(PWSGetChanges.myOutputVar) # '$(ExtractedDataFolderPath)'
+
+    - task: ArchiveFiles@2
+      displayName: 'Zip config data'
+      inputs:
+        rootFolderOrFile: $(PWSGetChanges.myOutputVar) # '$(ExtractedDataFolderPath)'
+        includeRootFolder: false
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(DataImportZipFilename)'
+
+    - task: UniversalPackages@0
+      condition: ne(variables['Build.Reason'], 'PullRequest') # don't publish if is a PR build
+      inputs:
+        command: 'publish'
+        publishDirectory: '$(Build.ArtifactStagingDirectory)/$(DataImportZipFilename)'
+        feedsToUsePublish: 'internal'
+        vstsFeedPublish: '$(ArtifactFeedId)'
+        vstsFeedPackagePublish: pp-config-data-$(PWSGetChanges.myOutputVarLower)
+        versionOption: 'custom'
+        versionPublish: '$(Build.BuildNumber)' #'$(ArtifactFeedPackageVersion)'
+        packagePublishDescription: '$(PackageDescription)'
+        verbosity: 'Trace'
+        publishedPackageVar: 'OutArtifactFeedPackage'
+
+    - template: templates/update-manifests-with-new-package-version.yml
+      parameters:
+        packageName: '$(ArtifactName)'
+        newVersion: '$(Build.BuildNumber)'

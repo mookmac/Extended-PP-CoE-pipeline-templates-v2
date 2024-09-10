@@ -1,0 +1,395 @@
+resources:
+  repositories:
+  - repository: PipelineRepo  # repository name (DO NOT CHANGE THIS VALUE) 
+    type: git
+    name: coe-alm-accelerator-templates  #This is the name of the repo in the current project in Azure Devops that has the pipeline templates. If the repo is in a different project you can specify the project and repo using the format ProjectContainingTheBuildTemplates/RepositoryContainingTheBuildTemplates (https://docs.microsoft.com/en-us/azure/devops/pipelines/yaml-schema?view=azure-devops&tabs=schema%2Cparameter-schema#type)
+
+parameters:
+- name: createenv
+  displayName: Create PP env?
+  type: boolean
+  default: false
+
+- name: envdisplayname
+  displayName: New PP env display name
+  type: string
+  default: ''
+
+- name: envdomainname
+  displayName: New PP env sub-domain name
+  type: string
+  default: ''
+
+- name: envlocation
+  displayName: New PP env location
+  type: string
+  default: 'unitedkingdom'
+
+- name: envcurrency
+  displayName: New PP env currency
+  type: string
+  default: 'GBP'
+
+- name: D365AppsToDeploy
+  displayName: D365 apps to deploy if any, e.g. enter string like D365_CustomerService, D365_FieldService, D365_Sales if required (enter "/" to ignore)
+  type: string
+  default: "/"
+
+- name: envSku
+  displayName: "Environment SKU. Available Options - Sandbox, Production, Trial, and SubscriptionBasedTrial"
+  type: string
+  default: "Sandbox"
+
+- name: variableGroup
+  displayName: Variable group with environment defaults
+  type: string
+  default: 'pp-common'
+
+- name: createpublisher
+  displayName: Create publisher in new PP env?
+  type: boolean
+  default: true
+
+- name: createportal
+  displayName: Is portal required?
+  type: boolean
+  default: false
+
+# todo: decide if we want to be able to create pp env and deploy a manifest in the same pipeline
+# - name: manifestversion
+#   displayName: Deploy manifest path
+#   type: string
+
+- name: environmentType
+  displayName: 'Environment name e.g., Dev, JITStaging, SIT, UAT, Training, PreProd, Prod'
+  type: string
+  default: 'Dev'
+
+- name: ServiceConnection
+  displayName: 'ServiceConnection name'
+  type: string
+  default: 'DfT-PowerPlatform-Admin'
+
+- name: ServiceConnectionUrl
+  displayName: 'ServiceConnection URL'
+  type: string
+  default: 'https://org123abc.crm4.dynamics.com/'
+
+- name: AzureDevOpsOrganizationURL
+  displayName: 'Azure DevOps Organisation URL'
+  type: string
+  default: 'https://dev.azure.com/MyADOProject'
+
+- name: AzureDevOpsProjectName
+  displayName: 'Azure DevOps Project Name'
+  type: string
+  default: 'My ADO Project'
+
+- name: environmentUrl
+  displayName: 'Full environment URL (only used if skipping Create stage)'
+  type: string
+  default: 'myNewEnv.crm11.dynamics.com'
+
+trigger: none
+
+name: Create PP environment with name ${{ parameters.envdomainname }} on $(Date:yyyyMMdd)$(Rev:.r)
+
+# NOTE: If you want to use different values for these variables, you can remove the variable group and attach them directly to this pipeline. The group specified below is a variable group defined in the Library for the Pipelines
+variables:
+- group: ${{parameters.variableGroup}}
+#- name: ServiceConnectionPowerPlatformEnvironmentManager
+#  value: 'Power Platform Environment Manager'
+- name: D365AppsToDeploy
+  ${{ if eq(parameters['D365AppsToDeploy'], '/') }}:
+    value: ""
+  ${{ if ne(parameters['D365AppsToDeploy'], '/') }}:
+    value: ${{ parameters.D365AppsToDeploy }}
+
+stages: 
+- stage: CreateEnvironment
+  jobs:
+  - job: CreateEnv
+    displayName: 'Create PP environment'
+    pool: 
+      vmImage: windows-latest
+    steps:
+    - task: NuGetToolInstaller@1
+      displayName: 'NuGet Tool Installer'
+
+    - task: NuGetCommand@2
+      displayName: 'NuGet Install Microsoft.PowerApps.CLI'
+      inputs:
+        command: 'custom'
+        arguments: 'install Microsoft.PowerApps.CLI -OutputDirectory pac'
+
+    # debug step to display files on pipeline agent
+    - template: templates\ado-display-files-on-agent.yml
+
+    - template: Pipelines\Templates\set-tools-paths.yml@PipelineRepo
+
+    - task: PowerPlatformToolInstaller@2
+      displayName: 'Power Platform Tool Installer'
+    
+    - task: PowerPlatformWhoAmi@2
+      inputs:
+        authenticationType: 'PowerPlatformSPN'
+        PowerPlatformSPN: ${{ parameters.ServiceConnection }}
+      displayName: 'Power Platform SPN WhoAmI'
+
+    - ${{ if eq(parameters.createenv, true) }}:
+      - task: PowerPlatformCreateEnvironment@2
+        displayName: 'Power Platform Create Environment'
+        inputs:
+          authenticationType: PowerPlatformSPN
+          PowerPlatformSPN: ${{ parameters.ServiceConnection }} # $(ServiceConnectionPowerPlatformEnvironmentManager)
+          DisplayName: '${{ parameters.envdisplayname }}' # 'xxx Bugfix Sprint 1' # use a parameter
+          EnvironmentSku: ${{ parameters.envSku }} # 'Sandbox' drive from variable group variable specified in parameter
+          AppsTemplate: '$(D365AppsToDeploy)' # 'D365_Sales, D365_CustomerService'
+          LocationName: ${{ parameters.envlocation }} # e.g. 'UnitedKingdom' # drive from variable group variable specified in parameter
+          LanguageName: 'English' # drive from variable group variable specified in parameter
+          CurrencyName: ${{ parameters.envcurrency }} #'AUD' # drive from variable group variable specified in parameter
+          DomainName: '${{ parameters.envdomainname }}' #'xxxbugfix-sprint1' # use a parameter
+
+- stage: ConfigureEnvironment
+  jobs:
+  - job: ConfigEnv
+    displayName: 'Config environment'
+    variables:
+      envUrl: $[ coalesce(variables['BuildTools.EnvironmentUrl'], '${{ parameters.environmentUrl }}') ]
+    pool: 
+      vmImage: windows-latest
+    steps:
+
+    - script: git config --system core.longpaths true
+      displayName: Set git to allow longpaths
+      
+    - checkout: self
+      displayName: 'Checkout Source Branch'
+
+    - task: NuGetToolInstaller@1
+      displayName: 'NuGet Tool Installer'
+
+    - task: NuGetCommand@2
+      displayName: 'NuGet Install Microsoft.PowerApps.CLI'
+      inputs:
+        command: 'custom'
+        arguments: 'install Microsoft.PowerApps.CLI -OutputDirectory pac'
+
+    # debug step to display files on pipeline agent
+    - template: templates\ado-display-files-on-agent.yml
+
+    - template: Pipelines\Templates\set-tools-paths.yml@PipelineRepo
+
+    - task: PowerPlatformToolInstaller@2
+      displayName: 'Power Platform Tool Installer'
+
+    - template: Pipelines\Templates\install-powershell-modules.yml@PipelineRepo
+      parameters:
+        skipBuildToolsInstaller: 'false'
+
+    - template: Pipelines\Templates\set-service-connection-url.yml@PipelineRepo
+      parameters:
+        serviceConnectionName: ${{ parameters.ServiceConnection }}
+        serviceConnectionUrl: ${{ parameters.ServiceConnectionUrl }}
+
+    - template: templates\pp-get-root-business-unit-id.yml
+      parameters:
+        serviceConnection: ${{ parameters.ServiceConnection }}
+
+    - bash: az --version
+      condition: eq(variables['System.Debug'], true)
+      displayName: 'Show Azure CLI version'
+
+    - bash: |
+        echo "organization=$SYSTEM_TEAMFOUNDATIONCOLLECTIONURI project=$SYSTEM_TEAMPROJECT"
+        az devops configure --defaults organization=$SYSTEM_TEAMFOUNDATIONCOLLECTIONURI project="$SYSTEM_TEAMPROJECT" --use-git-aliases true
+      displayName: 'Set default Azure DevOps organization and project'
+
+    - bash: |
+        AdoOrganizationUrl=${{parameters.AzureDevOpsOrganizationURL}}
+        AdoProjectName="${{parameters.AzureDevOpsProjectName}}"
+        PPEnvDomainName="${{parameters.envdomainname}}"
+        PPEnvUrl=$ENVURL
+        AdoVariableGroup="pp-$PPEnvDomainName"
+        EnvironmentType="${{parameters.environmentType}}" # e.g. UAT
+        PPEnvRootBusinessUnitId=$GETROOTBUSINESSUNITID_ROOTBUSINESSUNITID
+        WorkspaceFolder="$BUILD_SOURCESDIRECTORY/" # e.g. "C:/_xxxRepos/my-project/"
+        ConfigurationTemplatesRelativeFolder="power-platform/pipelines/configuration/"
+        InputFileName="variable-group-template-for-new-env.json"
+        InputAbsolutePath="$WorkspaceFolder$ConfigurationTemplatesRelativeFolder$InputFileName"
+        cat $InputAbsolutePath
+        AdoVariablesJson=$(cat $InputAbsolutePath)
+
+        AdoVariablesJson=${AdoVariablesJson//'<EnvironmentTypeValue>'/$EnvironmentType}
+        AdoVariablesJson=${AdoVariablesJson//'<EnvironmentNameValue>'/$EnvironmentType}
+        AdoVariablesJson=${AdoVariablesJson//'<PacPortalDeploymentProfileValue>'/${EnvironmentType,,}}
+        AdoVariablesJson=${AdoVariablesJson//'<ServiceConnectionValue>'/$PPEnvUrl}
+        AdoVariablesJson=${AdoVariablesJson//'<TargetEnvRootBusinessUnitIdValue>'/$PPEnvRootBusinessUnitId}
+        AdoVariablesJson=${AdoVariablesJson//'<TargetEnvRootBusinessUnitName>'/$PPEnvDomainName}
+        AdoVariablesJson=${AdoVariablesJson//'<TriggerSolutionUpgrade>'/$TRIGGERSOLUTIONUPGRADEDEFAULT}
+        
+        AdoVariables=$(echo $AdoVariablesJson | jq .)
+        echo $AdoVariables
+
+        echo "Checking if variable group exists with name: $AdoVariableGroup in project: $AdoProjectName in organization: $AdoOrganizationUrl"
+        VariableGroups=$(az pipelines variable-group list --project "$AdoProjectName" --detect false --group-name "$AdoVariableGroup" | jq .)
+        VariableGroupsCount=$(echo $VariableGroups | jq length)
+        echo "Found ${VariableGroupsCount:-0} groups matching the name $AdoVariableGroup"
+
+        if [ ${VariableGroupsCount:-0} -gt 1 ]; then
+            echo "##vso[task.logissue type=error]Multiple variable groups found with name: $AdoVariableGroup, cannot continue!"
+            exit 1
+        elif [ ${VariableGroupsCount:-0} -eq 1 ]; then
+            echo "Variable group with name: $AdoVariableGroup exists"
+            VariableGroup=$(echo $VariableGroups | jq '.[0]')
+            echo $VariableGroup
+        else
+            echo "Variable group does not exist, creating it"
+            VariableGroup=$(az pipelines variable-group create --name $AdoVariableGroup \
+                --variables EnvironmentType=$EnvironmentType \
+                --authorize false \
+                --description "Variable for Power Platform environment: $PPEnvUrl" \
+                --project "$AdoProjectName" \
+                --detect false | jq .)
+            echo $VariableGroup
+        fi
+
+        VariableGroupId=$(echo $VariableGroup | jq -r '.id')
+        echo "Getting variables from variable group ID: $VariableGroupId"
+        ExistingVariables=$(az pipelines variable-group variable list --group-id $VariableGroupId --project "$AdoProjectName" --detect false | jq .)
+        echo "Loaded existing variables from group: $ExistingVariables"
+
+        for AdoVariable in $(echo $AdoVariables | jq -c '.[]'); do
+            VariableName=$(echo $AdoVariable | jq -r '.name')
+            VariableValue=$(echo $AdoVariable | jq -r '.value')
+            IsSecret=$(echo $AdoVariable | jq -r '.isSecret')
+
+            echo "Variable name: $VariableName"
+            echo "Variable value: $VariableValue"
+            echo "Variable issecret: $IsSecret"
+
+            ExistingVariableCount=$(jq -r -n --argjson data "$ExistingVariables" --arg varName "$VariableName" -c '$data|objects|.[$varName]//empty'  | jq length)
+            if [ ${ExistingVariableCount:-0} -gt 0 ]; then
+                echo "Variable $VariableName exists, updating its value"
+                az pipelines variable-group variable update --group-id $VariableGroupId \
+                    --name "$VariableName" \
+                    --detect false \
+                    --project "$AdoProjectName" \
+                    --secret $IsSecret \
+                    --value "$VariableValue"
+            else
+                echo "Variable $VariableName does not exist, creating it"
+                az pipelines variable-group variable create --group-id $VariableGroupId \
+                    --name "$VariableName" \
+                    --detect false \
+                    --project "$AdoProjectName" \
+                    --secret $IsSecret \
+                    --value "$VariableValue"
+            fi
+        done
+      displayName: 'Create variable group and variables for new environment'
+      env:
+        AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+
+  - ${{ if eq(parameters.createpublisher, true) }}:
+    - job: CreatePublisher
+      displayName: Create publisher
+      variables:
+        envUrl: $[ coalesce(variables['BuildTools.EnvironmentUrl'], '${{ parameters.environmentUrl }}') ]
+      pool: 
+        vmImage: windows-latest
+      steps:
+      - template: templates\pp-create-publisher.yml
+        parameters:
+          ppEnvironmentUrl: $(envUrl)
+          serviceConnection: ${{ parameters.ServiceConnection }}
+
+  - ${{ if eq(parameters.createportal, true) }}:
+    - job: CreatePortal
+      displayName: Create portal
+      dependsOn: CreateEnv
+      pool: server
+      steps:
+      - task: ManualValidation@0
+        timeoutInMinutes: 1440 # task times out in 1 day
+        inputs:
+          instructions: 'Please create the portal via the make.powerapps.com UI until power apps creation is supported via command line. Once portal solutions are installed and portal is ready, come back here and click on Resume'
+          onTimeout: 'resume'
+  
+- stage: CreateServiceConnection
+  jobs:
+  - job: CreateServConn
+    displayName: 'Create Service Connection'
+    variables:
+      envUrl: $[ coalesce(variables['BuildTools.EnvironmentUrl'], '${{ parameters.environmentUrl }}') ]
+    pool: 
+      vmImage: windows-latest
+    steps:
+
+    - script: git config --system core.longpaths true
+      displayName: Set git to allow longpaths
+      
+    - checkout: self
+      displayName: 'Checkout Source Branch'
+
+    - task: PowerPlatformToolInstaller@2
+      inputs:
+        DefaultVersion: true
+        AddToolsToPath: true
+
+    - task: qetza.replacetokens.replacetokens-task.replacetokens@5
+      inputs:
+        rootDirectory: 'power-platform/pipelines/configuration/'
+        targetFiles: 'newServiceConnection*.json'
+        encoding: 'auto'
+        tokenPattern: 'default'
+        writeBOM: true
+        actionOnMissing: 'warn'
+        keepToken: false
+        actionOnNoFiles: 'continue'
+        enableTransforms: false
+        useLegacyPattern: false
+        enableTelemetry: true
+        additionalVariables: |
+          - envUrl: '$(envUrl)'
+          -  projectId: '$(System.TeamProjectId)'
+          -  projectName: '$(System.TeamProject)'
+
+    # Sets the Connection variables from the Service Connection passed in input parameter
+    # Will set BuildTools.ApplicationId, BuildTools.ClientSecret, BuildTools.TenantId
+    - task: PowerPlatformSetConnectionVariables@2
+      displayName: 'Set Connection Variables - PowerPlatform-Admin'
+      name: ConnectionVariables
+      inputs:
+        authenticationType: PowerPlatformSPN
+        PowerPlatformSPN: 'PowerPlatform-Admin'
+
+    # PAC Auth - Connects to the Power Platform environment
+    - pwsh: |
+        pac auth create --url ${{parameters.serviceConnectionUrl}} --applicationId $(ConnectionVariables.BuildTools.ApplicationId) --clientSecret $(ConnectionVariables.BuildTools.ClientSecret) --tenant $(ConnectionVariables.BuildTools.TenantId)
+        
+        (Get-Content power-platform/pipelines/configuration/newServiceConnection.json).Replace("#appId#", "$(ConnectionVariables.BuildTools.ApplicationId)").Replace("#clientSecret#", "$(ConnectionVariables.BuildTools.ClientSecret)") | Set-Content power-platform/pipelines/configuration/newServiceConnection.json
+        
+        echo "New Service Connection settings"
+        cat power-platform/pipelines/configuration/newServiceConnection.json
+               
+        echo "Creating new Service Connection in ADO"
+        az devops service-endpoint create --service-endpoint-configuration power-platform/pipelines/configuration/newServiceConnection.json --organization "$(System.TeamFoundationCollectionUri)" --project "$(System.TeamProject)"
+        
+        echo "Register Application User in new environment"
+        pac admin assign-user --user "$(ConnectionVariables.BuildTools.ApplicationId)" --role "System administrator" --environment "https://$(envUrl)" --application-user
+      displayName: 'Create Service Connection in ADO and add Application User to $(envUrl)'
+      env:
+        AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+
+    - task: PowerPlatformAssignGroup@2
+      inputs:
+        authenticationType: 'PowerPlatformSPN'
+        PowerPlatformSPN: 'PowerPlatform-Admin'
+        Environment: 'https://$(envUrl)'
+        Group: '000000-0000-0000-0000-7419e7e72d62'
+        GroupName: 'PowerPlatform-DEV-Group'
+        Role: 'System administrator'
+        TeamType: 'AadSecurityGroup'
+        MembershipType: 'Members'
+      displayName: 'Add PowerPlatform-DEV-Group as System Administrators in $(envUrl)'

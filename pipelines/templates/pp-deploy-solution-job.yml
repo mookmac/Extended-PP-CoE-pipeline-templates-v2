@@ -1,0 +1,163 @@
+parameters:
+- name: packageName
+  type: string
+
+- name: packageVersion
+  type: string
+
+- name: packageType
+  type: string
+
+- name: ismanaged
+  type: boolean
+
+- name: dependsOnJobName
+  type: string
+
+- name: jobEnvironmentName
+  type: string
+
+- name: stageName
+  type: string
+
+- name: ppServiceConnectionName
+  type: string
+
+- name: crmConnectionString
+  type: string
+
+- name: artifactServiceConnectionName
+  type: string
+
+- name: OverwriteUnmanagedCustomizations
+  type: string
+
+jobs:
+- job: ${{replace(parameters.packageName, '-', '_')}}_CheckExistingDeploymentVersion
+  ${{ if ne(length(parameters.dependsOnJobName), 0) }}:
+    dependsOn: 
+      - ${{ replace(parameters.dependsOnJobName,'-','_') }}_${{ parameters.stageName }}
+  ${{ if eq(length(parameters.dependsOnJobName), 0) }}:
+    dependsOn: []
+  pool:
+    vmImage: windows-latest
+  displayName: '${{ parameters.packageName }}: Check if manifest solution version (${{ parameters.packageVersion }}) is equal or lower than already deployed version'
+  steps:
+    - template: pp-set-connection-string-from-service-conn.yml
+      parameters:
+        serviceConnection: ${{ parameters.ppServiceConnectionName }}
+
+    - task: PowerShell@2
+      displayName: 'Install PAC CLI'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Invoke-WebRequest https://aka.ms/PowerAppsCLI -OutFile pac.msi
+          msiexec /i pac.msi /quiet /norestart
+
+    - task: PowerShell@2
+      inputs:
+        pwsh: true
+        targetType: 'inline'
+        script: |
+          # refresh path to make pac available
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") 
+          pac install latest
+          pac auth create --name XXX `
+          --url $(BuildTools.EnvironmentUrl) `
+          --tenant $(connectionVariables.BuildTools.TenantId) `
+          --applicationId $(connectionVariables.BuildTools.ApplicationId) `
+          --clientSecret $(connectionVariables.BuildTools.ClientSecret)
+          pac org who
+
+          $X='${{ parameters.packageName }}'
+          $SolutionName=$X.Split("-")[2]
+          Write-Host $(BuildTools.EnvironmentUrl)
+          $B=pac solution list --environment $(BuildTools.EnvironmentUrl) --json 
+          Write-Host $B
+          $A=$B | ConvertFrom-Json
+          $debugOutput=$A | Where-Object SolutionUniqueName -EQ $SolutionName | Select-Object VersionNumber
+          Write-Host $debugOutput 
+          If([System.Version](echo $A | Where-Object SolutionUniqueName -EQ $SolutionName | Select-Object VersionNumber).VersionNumber -eq [System.Version]'${{ parameters.packageVersion }}') { echo "##vso[task.setvariable variable=SkipSolutionImport]"true" } Else { echo "##vso[task.setvariable variable=SkipSolutionImport]"false" }
+      displayName: 'Check if manifest solution version is equal or lower than already deployed version'
+    
+- deployment: ${{ replace(parameters.packageName,'-','_') }}_${{ parameters.stageName }} # name of the deployment job, A-Z, a-z, 0-9, and underscore. The word "deploy" is a keyword and is unsupported as the deployment name.
+  displayName: ${{ replace(parameters.packageName,'pp-solution-','') }} ${{ parameters.packageVersion }} solution deployment  # friendly name to display in the UI
+  ${{ if ne(length(parameters.dependsOnJobName), 0) }}:
+    dependsOn: 
+      - ${{ replace(parameters.dependsOnJobName,'-','_') }}_${{ parameters.stageName }}
+      - ${{replace(parameters.packageName, '-', '_')}}_CheckExistingDeploymentVersion
+  ${{ if eq(length(parameters.dependsOnJobName), 0) }}:
+    dependsOn: 
+      - ${{replace(parameters.packageName, '-', '_')}}_CheckExistingDeploymentVersion
+  pool:                # not required for virtual machine resources
+    vmImage: windows-latest
+  workspace:
+    clean: all
+  environment: ${{ parameters.jobEnvironmentName }} # e.g. pp-qa
+  variables:
+  - name: crmConnectionString
+    value: ${{parameters.crmConnectionString}}
+  strategy:
+    runOnce:    #rolling, canary are the other strategies that are supported
+      deploy:
+        steps:
+        - script: >
+            echo "Deploying PP solution package: ${{ parameters.packageName }}, version ${{ parameters.packageVersion }}, managed: ${{ parameters.ismanaged }}, using service connection: ${{ parameters.ppServiceConnectionName }}"
+          displayName: Job description
+
+        - script: git config --system core.longpaths true
+          displayName: Set git to allow longpaths
+
+        - checkout: PipelineRepo
+          path: 'PipelineUtils'
+          displayName: 'Checkout Pipeline Branch'
+          
+        # debug step to display files on pipeline agent
+        - template: ado-display-files-on-agent.yml
+
+        - template: Pipelines\Templates\set-tools-paths.yml@PipelineRepo
+      
+        - task: UniversalPackages@0
+          displayName: "Download package ${{ parameters.packageName }} version ${{ parameters.packageVersion }}"
+          inputs:
+            command: 'download'
+            downloadDirectory: '$(Pipeline.Workspace)/drop'
+            feedsToUse: 'external'
+            externalFeedCredentials: ${{ parameters.artifactServiceConnectionName }}
+            feedDownloadExternal: $(ArtifactFeedId)
+            packageDownloadExternal: '${{ parameters.packageName }}'
+            versionDownloadExternal: '${{ parameters.packageVersion }}'
+            verbosity: 'Trace'
+        
+        - template: ado-display-files-on-agent.yml
+        
+        # Set variables for the artifact drop path
+        - powershell: |
+            #$artifactDropPath = "$(Build.SourcesDirectory)/${{ parameters.packageName }}/"
+            $artifactDropPath = '$(Pipeline.Workspace)/drop/'
+            #If (Test-Path -Path "$(Pipeline.Workspace)/buildPipeline/drop")
+            #{
+            #    $artifactDropPath = "$(Pipeline.Workspace)/buildPipeline/drop/"
+            #}
+            Write-Host "ArtifactDropPath: $artifactDropPath"
+            Write-Host "##vso[task.setVariable variable=ArtifactDropPath]$artifactDropPath"
+          displayName: "Get artifact drop path for ${{ parameters.packageName }}"
+        
+        - template: Pipelines\Templates\deploy-Solution.yml@PipelineRepo
+          parameters:
+            serviceConnectionName: ${{ parameters.ppServiceConnectionName }} #'$(ServiceConnection)'
+            serviceConnectionUrl: '$(BuildTools.EnvironmentUrl)' #'https://${{ parameters.ppServiceConnectionName }}' #'$(ServiceConnection)'
+            solutionName: ${{ replace(parameters.packageName,'pp-solution-','') }}
+            #solutionversion: ${{ parameters.packageVersion }}
+            environmentName: ${{ replace(parameters.stageName,'-','_') }}
+            #environmentVariables: '' #'$(EnvironmentVariables)'
+            #connectionReferences: '' #'$(ConnectionReferences)'
+            #aadGroupTeamConfiguration: '' #$(AadGroupTeamConfiguration)'
+            #aadGroupCanvasConfiguration: '' #'$(AadGroupCanvasConfiguration)'
+            #solutionComponentOwnershipConfiguration: '' #'$(SolutionComponentOwnershipConfiguration)'
+            overwriteUnmanagedCustomizations: ${{ parameters.OverwriteUnmanagedCustomizations }}
+            importUnmanaged: '${{ not(parameters.ismanaged) }}'
+            skipBuildToolsInstaller: 'false' # we hard code this to true as we have already installed the tools in a previous step in this job
+            cacheEnabled: 'false' # this is not currently working in multi-stage pipeline which use the deployment job - https://github.com/microsoft/azure-pipelines-tasks/issues/13420
+        

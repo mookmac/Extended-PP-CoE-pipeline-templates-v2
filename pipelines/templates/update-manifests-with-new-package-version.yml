@@ -1,0 +1,92 @@
+parameters:
+- name: packageName
+  type: string
+  
+- name: newVersion
+  type: string
+
+- name: manifestFolderRelativePath
+  type: string
+  default: 'power-platform\pipelines\release-manifests\'
+
+steps:
+- checkout: self
+  path: 'manifestupdates'
+  persistCredentials: true
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest')) # don't publish if is a PR build and only run if the publish artifact task succeeded
+
+# Configure email/name and checkout git branch
+- task: PowerShell@2
+  displayName: 'Initialize Git'
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest')) # don't publish if is a PR build and only run if the publish artifact task succeeded
+  inputs:
+    targetType: 'inline'
+    script: |
+      $CleanedBranch = "$(Build.SourceBranch)" -replace "refs/heads/", ""
+      git config user.email "devops@ceox.co.uk"
+      git config user.name "Automatic Build"
+      git checkout origin/$CleanedBranch --track
+    workingDirectory: $(Agent.BuildDirectory)\manifestupdates
+  
+
+# update the manifest files with the new version for the relevant package and commit with NO CI trigger
+- task: PowerShell@2
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest')) # don't publish if is a PR build and only run if the publish artifact task succeeded
+  displayName: 'Update all manifest files which refer to the package ${{parameters.packageName}} with the new version ${{parameters.newVersion}}'
+  inputs:
+    targetType: 'inline'  
+    script: |      
+      $ManifestFolderPath = "$(Agent.BuildDirectory)\manifestupdates\${{parameters.manifestFolderRelativePath}}"
+      $Version = "${{parameters.newVersion}}"
+      $PackageName = "${{parameters.packageName}}" -replace "unmanaged-", ""
+      $PackageName = $PackageName -replace "managed-", ""
+
+      Write-Host "ManifestFolderPath: $ManifestFolderPath"
+      Write-Host "Version: $Version"
+      Write-Host "PackageName: $PackageName"
+
+      # package types
+      # - pp-environment-data-envsetupdata
+      # - pp-solution-{solutionname}
+      # - pp-config-data-{packagename}
+      # - pp-portal-data-{portalname}
+      # - pp-sample-data-{datasetname}
+
+      $ManifestFiles = Get-ChildItem $ManifestFolderPath -Filter "*.yml" -Recurse 
+      if ($ManifestFiles) {
+          foreach ($file in $ManifestFiles) {
+              $ManifestFilePath = $file.FullName
+              Write-Host "Current File: $ManifestFilePath"
+              $ManifestFileAsString = Get-Content $ManifestFilePath -Raw
+              $ManifestFileAsString = $ManifestFileAsString -replace "- name: pp-$PackageName\r\n    version: [\s\S]*?\r\n", "- name: pp-$PackageName`r`n    version: $Version`r`n" 
+              $ManifestFileAsString = $ManifestFileAsString -replace "- name: $PackageName\r\n    version: [\s\S]*?\r\n", "- name: $PackageName`r`n    version: $Version`r`n"
+              $ManifestFileAsString | Set-Content $ManifestFilePath -NoNewline -Encoding ASCII
+              Write-Host "Staging file: $ManifestFilePath"
+              git add $ManifestFilePath
+          }    
+      }
+
+      git status
+    workingDirectory: $(Agent.BuildDirectory)\manifestupdates
+
+# Commit all changes to Git branch. If there are no changes we want to warn the user that there was nothing to commit. As this could mean there was a user error involved.
+- powershell: |
+    $gitStatus = iex "git status --porcelain"
+    if ($gitStatus) {
+        git commit -m "Updating all manifest files which refer to the package ${{parameters.packageName}} with the new version ${{parameters.newVersion}}"
+    }
+    else {
+        Write-Host "##vso[task.logissue type=warning]There is nothing to commit. No changes have been made since the previous commit. If this is unexpected make sure your changes have been published before committing again."
+        exit 1;
+    }
+  workingDirectory: $(Agent.BuildDirectory)\manifestupdates
+  displayName: 'Commit Changes to Git Branch'
+  continueOnError: true
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest')) # don't publish if is a PR build and only run if the publish artifact task succeeded
+
+# Push to the branch specified in the BranchToCreate parameter
+- script: |
+   git -c http.extraheader="AUTHORIZATION: bearer $(System.AccessToken)" push origin $(Build.SourceBranch)
+  workingDirectory: $(Agent.BuildDirectory)\manifestupdates
+  displayName: 'Push committed changes to $(Build.SourceBranch)'
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest')) # don't publish if is a PR build and only run if the publish artifact task succeeded
