@@ -15,6 +15,21 @@ parameters:
   type: string
   default: ''
 
+- name: createNewBranch
+  displayName: 'Create new branch for extract'
+  type: string
+  default: 'true' 
+
+- name: createPR
+  displayName: 'Create a Pull Request for this export'
+  type: string
+  default: 'true' 
+
+- name: PRTargetBranch
+  displayName: 'The target branch for the Pull Request (if creating a new one)'
+  type: string
+  value: 'main'
+  
 - name: serviceConnection
   displayName: 'Name of the ServiceConnection to the PP environment to export the data from'
   type: string
@@ -55,12 +70,6 @@ variables:
   value: 'true'
 - name: branchToCreate
   value: '${{ parameters.SolutionName }}-$(formattedDateTimestamp)'
-- name: branch
-  value: 'main'
-- name: createPR
-  value: 'true'
-- name: PRTargetBranch
-  value: 'main'
 
 stages: 
 - stage: ExportSolution
@@ -97,7 +106,7 @@ stages:
       parameters:
         project: 'MyADOProject' #The name of the Azure DevOps Project to which we are exporting our solution.
         repo: '$(repo)\${{ parameters.solutionSourceFolder }}' #The name of the Azure DevOps Repo to which we are exporting our solution.
-        branch: '$(branch)' #The name of the Azure DevOps Branch in the Repo above to which we are exporting our solution.
+        branch: '$(Build.SourceBranchName)' #The name of the Azure DevOps Branch in the Repo above to which we are exporting our solution. (AJM: using the one selected via dropdown at top of Run panel)
         branchToCreate: '$(branchToCreate)' #The name of the new Azure DevOps Branch to create in the Repo above to which we are exporting our solution (Optional).
         createSolutionBranch: $(createSolutionBranch)
         commitMessage: '${{ parameters.CommitMessage }}' #The commit message for this commit.
@@ -142,8 +151,8 @@ stages:
         }
 
         $targetBranch = "$(branch)"
-        if("$(PRTargetBranch)" -ne "NA" -and "$(PRTargetBranch)" -ne "") {
-          $targetBranch = "$(PRTargetBranch)"
+        if("${{ parameters.PRTargetBranch }}" -ne "NA" -and "${{ parameters.PRTargetBranch }}" -ne "") {
+          $targetBranch = "${{ parameters.PRTargetBranch }}"
         }
         elseif("$(createSolutionBranch)" -eq "true") {
           $targetBranch = "${{parameters.SolutionName}}"
@@ -155,4 +164,4 @@ stages:
       env:
         SYSTEM_ACCESSTOKEN: $(System.AccessToken)
       displayName: 'Create a pull request for the new branch'
-      condition: and(succeeded(), eq(variables.createPR, 'true'))
+      condition: and(succeeded(), eq(parameters.createPR, 'true'))
