@@ -14,15 +14,31 @@ parameters:
   type: string
   default: ""
 
+- name: devVariableGroup
+  type: string
+  default: ""
+
 - name: sitServiceConn
+  type: string
+  default: ""
+
+- name: sitVariableGroup
   type: string
   default: ""
 
 - name: uatServiceConn
   type: string
   default: ""
-  
+
+- name: uatVariableGroup
+  type: string
+  default: ""
+
 - name: prodServiceConn
+  type: string
+  default: ""
+
+- name: prodVariableGroup
   type: string
   default: ""
 
@@ -45,6 +61,7 @@ stages:
   - name: overwriteUnmanagedCustomizationsString
     value: $[lower(${{ parameters.overwriteUnmanagedCustomizations }})]
   - group: pp-common
+  - group: ${{ parameters.devVariableGroup }}
 
   jobs:
   - template: pp-deploy-package-jobs.yml
@@ -64,6 +81,7 @@ stages:
   - name: overwriteUnmanagedCustomizationsString
     value: $[lower(${{ parameters.overwriteUnmanagedCustomizations }})]
   - group: pp-common
+  - group: ${{ parameters.sitVariableGroup }}
 
   jobs:
   - template: pp-deploy-package-jobs.yml
@@ -82,6 +100,7 @@ stages:
   - name: overwriteUnmanagedCustomizationsString
     value: $[lower(${{ parameters.overwriteUnmanagedCustomizations }})]
   - group: pp-common
+  - group: ${{ parameters.uatVariableGroup }}
 
   jobs:
   - template: pp-deploy-package-jobs.yml
@@ -100,6 +119,7 @@ stages:
   - name: overwriteUnmanagedCustomizationsString
     value: $[lower(${{ parameters.overwriteUnmanagedCustomizations }})]
   - group: pp-common
+  - group: ${{ parameters.prodVariableGroup }}
 
   jobs:
   - template: pp-deploy-package-jobs.yml
