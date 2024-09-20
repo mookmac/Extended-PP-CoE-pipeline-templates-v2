@@ -31,6 +31,22 @@ parameters:
   type: string
   default: 'Power-Prod'
 
+- name: devVariableGroup
+  type: string
+  default: ""
+
+- name: sitVariableGroup
+  type: string
+  default: ""
+
+- name: uatVariableGroup
+  type: string
+  default: ""
+
+- name: prodVariableGroup
+  type: string
+  default: ""
+  
 - name: skipSITStage
   displayName: 'Skip SIT stage - only use in emergency'
   type: boolean
@@ -53,9 +69,13 @@ extends:
       artifactServiceConnectionName: 'Artifact Feed SC'
       deployToDEV: ${{ parameters.deployToDEV }}
       devServiceConn: ${{ parameters.devServiceConn }}
+      devVariableGroup: ${{ parameters.devVariableGroup }}
       sitServiceConn: ${{ parameters.sitServiceConn }}
+      sitVariableGroup: ${{ parameters.sitVariableGroup }}
       uatServiceConn: ${{ parameters.uatServiceConn }}
+      uatVariableGroup: ${{ parameters.uatVariableGroup }}
       prodServiceConn: ${{ parameters.prodServiceConn }}
+      prodVariableGroup: ${{ parameters.prodVariableGroup }}
       skipSITStage: ${{ parameters.skipSITStage }}
       skipUATStage: ${{ parameters.skipUATStage }}
       skipProdStage: ${{ parameters.skipProdStage }}
