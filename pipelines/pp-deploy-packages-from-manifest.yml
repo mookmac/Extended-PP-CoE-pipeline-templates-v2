@@ -13,21 +13,41 @@ parameters:
   type: string  
   default: 'Power-DEV'
 
+- name: devVariableGroup
+  displayName: 'DEV variable group'
+  type: string  
+  default: 'powerplatform-dev-vars'
+
 - name: sitServiceConn
   displayName: 'QA PP Service Connection'
   type: string  
   default: 'Power-QA'
 
+- name: sitVariableGroup
+  displayName: 'QA variable group'
+  type: string  
+  default: 'powerplatform-qa-vars'
+  
 - name: uatServiceConn
   displayName: 'UAT PP Service Connection'
   type: string  
   default: 'Power-UAT'
 
+- name: uatVariableGroup
+  displayName: 'UAT variable group'
+  type: string  
+  default: 'powerplatform-uat-vars'
+  
 - name: prodServiceConn
   displayName: 'Prod PP Service Connection'
   type: string  
   default: 'Power-Prod'
 
+- name: prodVariableGroup
+  displayName: 'Prod variable group'
+  type: string  
+  default: 'powerplatform-prod-vars'
+  
 - name: skipQAStage
   displayName: 'Skip QA stage'
   type: boolean  
@@ -59,9 +79,6 @@ resources:
 
 variables:
   - group: pp-common
-  - group: powerplatform-qa-vars
-  - group: powerplatform-uat-vars
-  - group: powerplatform-prod-vars
 
 name: Deploy Power Platform release manifest ${{ parameters.manifestfilename }} on $(Date:yyyyMMdd)$(Rev:.r)
 
@@ -70,9 +87,13 @@ extends:
   parameters:
     deployToDEV: ${{ parameters.deployToDEV }}
     devServiceConn: ${{ parameters.devServiceConn }}
+    devVariableGroup: ${{ parameters.devVariableGroup }}
     sitServiceConn: ${{ parameters.sitServiceConn }}
+    sitVariableGroup: ${{ parameters.sitVariableGroup }}
     uatServiceConn: ${{ parameters.uatServiceConn }}
+    uatVariableGroup: ${{ parameters.uatVariableGroup }}
     prodServiceConn: ${{ parameters.prodServiceConn }}
+    prodVariableGroup: ${{ parameters.prodVariableGroup }}
     skipSITStage: ${{ parameters.skipQAStage }}
     skipUATStage: ${{ parameters.skipUATStage }}
     skipProdStage: ${{ parameters.skipProdStage }}
