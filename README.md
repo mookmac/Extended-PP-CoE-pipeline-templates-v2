@@ -3,6 +3,9 @@ _Original author: Alex MacVean 2022-2024_
 
 Explanation blog: https://www.linkedin.com/pulse/best-alm-strategy-power-platform-pro-devs-alexander-macvean-r0l3e 
 
+# Pre-requisites
+The templates included in this project are designed to be a wrapper around the templates found in Microsoft's (coe-alm-accelerator-templates project)[https://github.com/microsoft/coe-alm-accelerator-templates]. Clone that project into a separate repo in your ADO project, then use the files in the /hooks/ directory of this project to replace the placeholder ones in the coe-alm-accelerator-templates repo.
+
 # Extended ALM
 Create pipelines from these templates to enact the Extended ALM 
 ###Power Platform Solutions:
