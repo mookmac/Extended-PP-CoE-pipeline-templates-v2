@@ -1,0 +1,24 @@
+# The step(s) below can be replaced with your custom steps. You must have at least one step in your hook. The step(s) below demonstrate examples of custom hooks.
+# Be sure when upgrading to the latest pipelines that you don't overwrite your custom hooks with these samples hooks
+# Parameters passed to the parent pipeline (export-solution-to-git.yml) can be accessed via the following command.
+# . "$env:POWERSHELLPATH/load-save-pipeline-parameters.ps1"
+# $parameters = Read-Pipeline-Parameters "$(Agent.BuildDirectory)\export-pipeline-parameters.json"
+steps:
+- script: echo Export Solution Update Deploymentsettings Pre Hook
+  displayName: 'Export Solution Update Deploymentsettings Pre Hook'
+  enabled: true
+
+- pwsh: |
+    . "$env:POWERSHELLPATH/load-save-pipeline-parameters.ps1"
+    $parameters = Read-Pipeline-Parameters "$(Agent.BuildDirectory)\export-pipeline-parameters.json"
+
+    $repo = $parameters.repo
+    $solName = $parameters.solutionName
+
+    Write-Host "Executing Pac solution create-settings command"
+    $pacexepath = "$(pacPath)\pac.exe"
+    $pacCommand = "solution create-settings --solution-folder $(Build.SourcesDirectory)\$repo\$solName\ --settings-file $(Build.SourcesDirectory)\$repo\$solName\config\deploymentSettings.json"
+    Write-Host "Pac command - $pacexepath $pacCommand"
+
+    Invoke-Expression -Command "$pacexepath $pacCommand"
+  displayName: 'Custom PAC CLI generate deploymentSettings'
