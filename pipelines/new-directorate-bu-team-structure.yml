@@ -1,3 +1,6 @@
+# Demonstrates how to use a data template, published to the artifact feed as a data package, to bulk create data in the target system based on input parameter values. 
+# This leverages the token replacement part of the CoE deployment pipeline templates.
+
 parameters:
 - name: ppPackages
   type: object
