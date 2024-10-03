@@ -103,7 +103,7 @@ jobs:
       deploy:
         steps:
         - script: >
-            echo "Deploying PP solution package: ${{ parameters.packageName }}, version ${{ parameters.packageVersion }}, managed: ${{ parameters.ismanaged }}, using service connection: ${{ parameters.ppServiceConnectionName }}"
+            echo "Deploying PP solution package: ${{ parameters.packageName }}, version ${{ parameters.packageVersion }}, managed: ${{ parameters.ismanaged }}, isUnmanaged: ${{ lower(not(parameters.ismanaged)) }}, using service connection: ${{ parameters.ppServiceConnectionName }}"
           displayName: Job description
 
         - script: git config --system core.longpaths true
@@ -144,6 +144,22 @@ jobs:
             Write-Host "##vso[task.setVariable variable=ArtifactDropPath]$artifactDropPath"
           displayName: "Get artifact drop path for ${{ parameters.packageName }}"
         
+        # Set IsUnmanaged variable to 'True'
+        - pwsh: |
+            Write-Host "importUnmanaged - "  ${{ lower(not(parameters.ismanaged)) }}
+
+            $buildType = 'Both'
+            $isunmanaged = 'false'
+            if('${{ lower(not(parameters.ismanaged)) }}' -eq 'true'){
+                Write-Host "importUnmanaged is requested - " ${{ lower(not(parameters.ismanaged)) }}        
+                $buildType = 'Unmanaged'
+                $isunmanaged = 'true'
+            }
+
+            Write-Host "##vso[task.setVariable variable=BuildType]$buildType"
+            Write-Host "##vso[task.setVariable variable=IsUnmanaged]$isunmanaged"
+          displayName: "Set isUnmanaged variable"
+
         - template: Pipelines\Templates\deploy-Solution.yml@PipelineRepo
           parameters:
             serviceConnectionName: ${{ parameters.ppServiceConnectionName }} #'$(ServiceConnection)'
@@ -157,7 +173,7 @@ jobs:
             #aadGroupCanvasConfiguration: '' #'$(AadGroupCanvasConfiguration)'
             #solutionComponentOwnershipConfiguration: '' #'$(SolutionComponentOwnershipConfiguration)'
             overwriteUnmanagedCustomizations: ${{ parameters.OverwriteUnmanagedCustomizations }}
-            importUnmanaged: '${{ not(parameters.ismanaged) }}'
+            importUnmanaged: '${{ lower(not(parameters.ismanaged)) }}'
             skipBuildToolsInstaller: 'false' # we hard code this to true as we have already installed the tools in a previous step in this job
             cacheEnabled: 'false' # this is not currently working in multi-stage pipeline which use the deployment job - https://github.com/microsoft/azure-pipelines-tasks/issues/13420
         
