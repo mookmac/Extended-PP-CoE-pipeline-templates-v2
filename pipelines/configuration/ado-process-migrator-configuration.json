@@ -1,0 +1,10 @@
+{
+    "sourceAccountUrl": "https://dev.azure.com/sourceOrg",
+    "sourceAccountToken": "<sourceOrgPAT>",
+    "targetAccountUrl": "<targetOrgURL>",
+    "targetAccountToken": "<targetOrgPAT>",
+    "sourceProcessName": "My Custom Standard - Agile",
+    "targetProcessName": "My Custom Standard - Agile",
+    "options": {
+    }
+}
