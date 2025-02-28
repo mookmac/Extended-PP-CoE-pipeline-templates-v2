@@ -1,0 +1,51 @@
+parameters:
+  - name: sourcePAT
+    displayName: 'Source PAT'
+    type: string
+    default: '[Enter PAT here]'
+
+trigger: none
+
+pool:
+  vmImage: windows-latest
+
+steps:
+- checkout: self
+  persistCredentials: true
+  clean: true 
+  
+- task: NodeTool@0
+  inputs:
+    versionSource: 'spec'
+    versionSpec: '16.x'
+  displayName: 'Install Node.js'
+
+- task: Npm@1
+  inputs:
+    command: 'install'
+    workingDir: 'pipelines/configuration'
+
+- powershell: |
+    npm install -g process-migrator
+    
+    $configFiles = Get-ChildItem ./pipelines/configuration/ado-process-migrator-configuration.json -rec
+    foreach ($file in $configFiles)
+    {
+      (Get-Content $file) |
+      Foreach-Object { $_ -replace "<sourceOrgPAT>", "${{ parameters.sourcePAT }}" } |
+      Foreach-Object { $_ -replace "<targetOrgPAT>", "$(System.AccessToken)" } |
+      Foreach-Object { $_ -replace "<targetOrgURL>", "$(System.CollectionUri)" } |
+      Set-Content $file
+
+      cat $file
+      try { process-migrator --mode=migrate --config=$file }
+      catch {
+        Write-Host $_
+      }
+    }
+
+    If(Test-Path output\processMigrator.log)
+    {
+      Write-Host "Displaying processMigrator.log contents:"
+      cat output\processMigrator.log
+    }
