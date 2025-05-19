@@ -6,6 +6,9 @@ _Original author: Alex MacVean 2022-2024_
 # Pre-requisites
 The templates included in this project are designed to be a wrapper around the templates found in Microsoft's [coe-alm-accelerator-templates](https://github.com/microsoft/coe-alm-accelerator-templates) project. Clone that project into a separate repo in your ADO project, then use the files in the /hooks/ directory of this project to replace the placeholder ones in the coe-alm-accelerator-templates repo.
 
+# Automated ADO Setup
+Pipeline & instructions to automatically setup a new ADO project with full ALM configuration. [See Wiki page for details](https://github.com/mookmac/Extended-PP-CoE-pipeline-templates-v2/wiki/Automated-ADO-Setup)
+
 # Extended ALM
 Create pipelines from these templates to enact the Extended ALM 
 
