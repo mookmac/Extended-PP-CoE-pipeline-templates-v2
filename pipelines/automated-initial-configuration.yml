@@ -1,0 +1,78 @@
+# AJM 20250724: GitHub Copilot assisted. Very quick testing seems positive. Please report any issues.
+
+parameters:
+  - name: projectName
+    displayName: 'Project Name'
+    type: string
+    default: ''
+  - name: sourceRepoName
+    displayName: 'Source Code Repo Name'
+    type: string
+    default: ''
+
+trigger: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - checkout: self
+    persistCredentials: true
+
+  - script: |
+      echo "Updating placeholders: MyADOProject => ${{ parameters.projectName }}, Applications-Source => ${{ parameters.sourceRepoName }}"
+      find . -type f -exec sed -i \
+        -e "s/MyADOProject/${{ parameters.projectName }}/g" \
+        -e "s/Applications-Source/${{ parameters.sourceRepoName }}/g" {} +
+    displayName: 'Replace placeholders in all files'
+
+  - script: |
+      git config user.name "Azure DevOps Build Service"
+      git config user.email "build-service@dev.azure.com"
+      git checkout -b topic/initial-automatic-configuration
+      git add .
+      git commit -m "Initial automatic configuration: set project and repo placeholders"
+      git push origin topic/initial-automatic-configuration
+    displayName: 'Commit and push changes to new branch'
+    env:
+      SYSTEM_ACCESSTOKEN: $(SYSTEM_ACCESSTOKEN)
+
+  - script: |
+      echo "Creating Azure DevOps Pull Request"
+      # Extract organization and project from Azure DevOps repository URL
+      repo_url=$(git config --get remote.origin.url)
+      if [[ "$repo_url" =~ dev.azure.com/(.+)/(.+)/_git/(.+) ]]; then
+        ORG="${BASH_REMATCH[1]}"
+        PROJECT="${BASH_REMATCH[2]}"
+        REPO="${BASH_REMATCH[3]}"
+      else
+        echo "Unable to parse Azure DevOps repo URL: $repo_url"
+        exit 1
+      fi
+
+      # Create the PR using Azure DevOps REST API
+      PR_TITLE="Initial automatic configuration"
+      PR_DESCRIPTION="This PR sets the initial project and repo configuration."
+      PR_BODY="{\"sourceRefName\": \"refs/heads/topic/initial-automatic-configuration\", \"targetRefName\": \"refs/heads/main\", \"title\": \"$PR_TITLE\", \"description\": \"$PR_DESCRIPTION\"}"
+
+      API_URL="https://dev.azure.com/$ORG/$PROJECT/_apis/git/repositories/$REPO/pullrequests?api-version=7.0"
+      echo "POST $API_URL"
+      echo "$PR_BODY"
+
+      response=$(curl -s -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+        -d "$PR_BODY" \
+        "$API_URL")
+
+      pr_url=$(echo "$response" | grep -o '"url":"[^"]*' | grep -o 'http[^"]*')
+      if [ -n "$pr_url" ]; then
+        echo "Pull request created: $pr_url"
+      else
+        echo "Failed to create pull request. Response:"
+        echo "$response"
+        exit 1
+      fi
+    displayName: 'Create Azure DevOps Pull Request'
+    env:
+      SYSTEM_ACCESSTOKEN: $(SYSTEM_ACCESSTOKEN)
