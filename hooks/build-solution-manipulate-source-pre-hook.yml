@@ -19,7 +19,7 @@ steps:
           $repoName = '${{parameters.repositoryName}}'
           Write-Host "Reading Repo from repositoryName parameter"
       }
-      $repoName = "My-Applications-Source-Repo\src\power-platform\solutions$repoName"
+      $repoName = "Applications-Source\src\power-platform\solutions$repoName"
       Write-Host "##vso[task.setvariable variable=RepoName]$repoName"
       Write-Host "Repo Name - $repoName"
     displayName: 'Custom Overwrite Set Source Repo Name'
