@@ -13,7 +13,7 @@ variables:
 #- group: pp-common
 
 - name: ArtifactFeedId
-  value: '000-000-000-000' # replace this with the project feed (in format "project id/feed id")
+  value: '000-000-000-000' # replace this with the project feed (in format "project id/feed id") use https://feeds.dev.azure.com/%7Borganization%7D/%7Bproject%7D/_apis/packaging/feeds?api-version=6.0-preview.1 to find these ID values
 
 - name: ExtractedDataFolderPath
   value: '$(Build.Repository.Name)/power-platform/data/environmentSetupData/extracted-data/' # this should match the trigger include paths without the wildcard
