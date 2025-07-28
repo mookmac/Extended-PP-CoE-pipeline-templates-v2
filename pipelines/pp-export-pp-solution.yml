@@ -28,7 +28,7 @@ parameters:
 - name: PRTargetBranch
   displayName: 'The target branch for the Pull Request (if creating a new one)'
   type: string
-  value: 'main'
+  default: 'main'
   
 - name: serviceConnection
   displayName: 'Name of the ServiceConnection to the PP environment to export the data from'
