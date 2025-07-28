@@ -164,4 +164,4 @@ stages:
       env:
         SYSTEM_ACCESSTOKEN: $(System.AccessToken)
       displayName: 'Create a pull request for the new branch'
-      condition: and(succeeded(), eq(parameters.createPR, 'true'))
+      condition: and(succeeded(), eq(variables.createPR, 'true'))
